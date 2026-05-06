@@ -86,7 +86,7 @@ function getRunningPid(dataDir: string): number | null {
   }
 }
 
-// Clawd mascot poses — ported from Claude Code src/components/LogoV2/Clawd.tsx
+// Mascot poses ported from Claude Code src/components/LogoV2/Clawd.tsx
 const CLAWD_POSES = [
   // default
   [" ▐▛███▜▌  ", "▝▜█████▛▘ ", "  ▘▘ ▝▝   "],

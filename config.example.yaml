@@ -28,12 +28,13 @@ auth:
 
 bots:
   - name: "my-bot"
-    token: "${TELEGRAM_BOT_TOKEN}"
+    token: "123456:ABC-DEF..."
     auth:
       dmPolicy: "pairing"
       groupPolicy: "disabled"
       allowFrom: []
-      groups:
-        # "-1001234567890":
-        #   enabled: true
-        #   allowFrom: []
+      groups: {}
+      # groups:
+      #   "-1001234567890":
+      #     enabled: true
+      #     allowFrom: []

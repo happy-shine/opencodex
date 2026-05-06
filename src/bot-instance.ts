@@ -571,7 +571,7 @@ export class BotInstance {
       `Pairing code: ${req.code}`,
       "",
       "Ask the bot owner to approve with:",
-      `  openclaude pairing approve ${req.code} --bot ${this.config.name}`,
+      `  opencodex pairing approve ${req.code} --bot ${this.config.name}`,
     ].join("\n");
     await this.telegram.send({ chatId: msg.chatId, text });
   }
@@ -591,7 +591,7 @@ export class BotInstance {
       `Pairing code: ${req.code}`,
       "",
       "Ask the bot owner to approve with:",
-      `  openclaude group approve ${req.code} --bot ${this.config.name}`,
+      `  opencodex group approve ${req.code} --bot ${this.config.name}`,
     ].join("\n");
     await this.telegram.send({ chatId: msg.chatId, text });
   }
@@ -753,7 +753,7 @@ export class BotInstance {
 
   private async handleHelp(msg: InboundMessage): Promise<void> {
     const text = [
-      "OpenClaude Commands:",
+      "OpenCodex Commands:",
       "",
       "/new \u2014 Start a new session",
       "/btw <question> \u2014 Quick side question (non-blocking)",
