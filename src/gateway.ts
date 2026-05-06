@@ -2,17 +2,18 @@ import type { Logger } from "pino";
 import type { GatewayConfig } from "./config/types.js";
 import { setMessageStore } from "./channels/telegram/handlers.js";
 import { MessageStore } from "./sessions/message-store.js";
-import { ProcessManager } from "./process/manager.js";
+import { createEngineManager, updateEngineFromConfig } from "./engines/manager.js";
+import type { EngineAdapter } from "./engines/types.js";
 import { resolveDataDir, resolveBots, loadConfig } from "./config/loader.js";
 import { ApiServer } from "./api/server.js";
 import { BotInstance } from "./bot-instance.js";
 import { join } from "node:path";
-import { mkdirSync, watch, type FSWatcher } from "node:fs";
+import { watch, type FSWatcher } from "node:fs";
 
 export class Gateway {
   private config: GatewayConfig;
   private log: Logger;
-  private processManager: ProcessManager;
+  private processManager: EngineAdapter;
   private apiServer?: ApiServer;
   private messageStore: MessageStore;
   private bots = new Map<string, BotInstance>();
@@ -30,30 +31,8 @@ export class Gateway {
     this.messageStore = new MessageStore(this.dataDir);
     setMessageStore(this.messageStore);
 
-    // Build base extraArgs from top-level config (no per-bot model here)
-    const extraArgs = [...config.claude.extraArgs];
-    if (config.claude.model) {
-      extraArgs.push("--model", config.claude.model);
-    }
-
-    const workspaceDir = join(this.dataDir, "workspace");
-    const agentsDir = join(this.dataDir, "agents");
-    mkdirSync(workspaceDir, { recursive: true });
-    mkdirSync(agentsDir, { recursive: true });
-
     // Shared process manager
-    this.processManager = new ProcessManager(
-      {
-        binary: config.claude.binary,
-        idleTimeoutMs: config.claude.idleTimeoutMs,
-        maxProcesses: config.claude.maxProcesses,
-        extraArgs,
-        workspaceDir,
-        apiPort: config.gateway.port,
-        agentsDir,
-      },
-      log,
-    );
+    this.processManager = createEngineManager(config, this.dataDir, log);
 
     // Resolve bot configs and create BotInstance for each
     const botConfigs = resolveBots(config);
@@ -79,26 +58,18 @@ export class Gateway {
       const newConfig = loadConfig(this.configPath);
       const changes: string[] = [];
 
-      // Claude process config (applies to newly spawned processes)
-      const extraArgs = [...newConfig.claude.extraArgs];
-      if (newConfig.claude.model) extraArgs.push("--model", newConfig.claude.model);
-
-      if (newConfig.claude.model !== this.config.claude.model) {
-        changes.push(`model: ${this.config.claude.model ?? "default"} -> ${newConfig.claude.model ?? "default"}`);
+      // Engine config (applies to newly spawned processes/turns)
+      if (newConfig.engine.type !== this.config.engine.type) {
+        changes.push(`engine.type: ${this.config.engine.type} -> ${newConfig.engine.type}`);
       }
-      if (newConfig.claude.maxProcesses !== this.config.claude.maxProcesses) {
-        changes.push(`maxProcesses: ${this.config.claude.maxProcesses} -> ${newConfig.claude.maxProcesses}`);
+      if (newConfig.engine.maxProcesses !== this.config.engine.maxProcesses) {
+        changes.push(`engine.maxProcesses: ${this.config.engine.maxProcesses} -> ${newConfig.engine.maxProcesses}`);
       }
-      if (newConfig.claude.idleTimeoutMs !== this.config.claude.idleTimeoutMs) {
-        changes.push(`idleTimeoutMs: ${this.config.claude.idleTimeoutMs} -> ${newConfig.claude.idleTimeoutMs}`);
+      if (newConfig.engine.idleTimeoutMs !== this.config.engine.idleTimeoutMs) {
+        changes.push(`engine.idleTimeoutMs: ${this.config.engine.idleTimeoutMs} -> ${newConfig.engine.idleTimeoutMs}`);
       }
 
-      this.processManager.updateConfig({
-        binary: newConfig.claude.binary,
-        idleTimeoutMs: newConfig.claude.idleTimeoutMs,
-        maxProcesses: newConfig.claude.maxProcesses,
-        extraArgs,
-      });
+      updateEngineFromConfig(this.processManager, newConfig);
 
       // Log level
       if (newConfig.gateway.logLevel !== this.config.gateway.logLevel) {

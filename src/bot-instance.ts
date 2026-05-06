@@ -1,17 +1,16 @@
 import type { Logger } from "pino";
 import type { GatewayConfig, ResolvedBotConfig } from "./config/types.js";
 import type { InboundMessage } from "./channels/types.js";
-import type { StreamEvent } from "./process/types.js";
+import type { EngineAdapter, EngineEvent } from "./engines/types.js";
 import { TelegramAdapter } from "./channels/telegram/adapter.js";
 import { getRecentGroupContext, getRecentGroupContextForSession } from "./channels/telegram/handlers.js";
 import { MessageStore } from "./sessions/message-store.js";
 import { SessionManager } from "./sessions/manager.js";
 import { SessionStore } from "./sessions/store.js";
-import { ProcessManager } from "./process/manager.js";
 import { checkAccess } from "./auth/access.js";
 import { PairingManager } from "./auth/pairing.js";
 import { splitMessage, stripHtml } from "./channels/telegram/formatter.js";
-import { ProgressTracker, getToolDetail } from "./progress.js";
+import { ProgressTracker } from "./progress.js";
 import { join } from "node:path";
 import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from "node:fs";
 
@@ -24,7 +23,7 @@ export class BotInstance {
   readonly telegram: TelegramAdapter;
   private sessionManager: SessionManager;
   private pairingManager: PairingManager;
-  private processManager: ProcessManager;  // shared reference
+  private processManager: EngineAdapter;   // shared reference
   private messageStore: MessageStore;       // shared reference
   private log: Logger;
   private dataDir: string;
@@ -40,7 +39,7 @@ export class BotInstance {
   constructor(opts: {
     botConfig: ResolvedBotConfig;
     gatewayConfig: GatewayConfig;
-    processManager: ProcessManager;
+    processManager: EngineAdapter;
     messageStore: MessageStore;
     dataDir: string;
     log: Logger;
@@ -402,96 +401,26 @@ export class BotInstance {
 
     try {
       for await (const event of this.processManager.sendMessage(session, messageText, this.botId, this.extraArgs)) {
-        // --- Session init ---
-        if (event.type === "system" && event.subtype === "init" && event.session_id) {
-          this.sessionManager.update(session.sessionId, {
-            claudeSessionId: event.session_id as string,
-          });
+        this.applyEngineSessionEvent(session.sessionId, event);
+        this.applyProgressEvent(progress, event);
+
+        if (event.type === "error") {
+          await this.finalizeProgressError(progress, msg.chatId, `Error: ${event.message}`, msg.messageId);
+          break;
         }
 
-        // --- Real-time phase detection from raw API stream events ---
-        if (event.type === "stream_event" && event.event) {
-          const raw = event.event as Record<string, unknown>;
-          if (raw.type === "content_block_start") {
-            const block = raw.content_block as Record<string, unknown> | undefined;
-            if (block?.type === "thinking") {
-              progress.startThinking();
-            }
-          }
-        }
-
-        // --- Complete assistant message: extract tool_use + text ---
-        if (event.type === "assistant" && event.message) {
-          const content = event.message.content;
-          if (Array.isArray(content)) {
-            for (const block of content) {
-              if (typeof block !== "object" || block === null) continue;
-              const b = block as Record<string, unknown>;
-              if (b.type === "tool_use" && typeof b.name === "string") {
-                const detail = getToolDetail(b.name, b.input);
-                progress.startTool(b.name, detail);
-              }
-              if ("text" in b && typeof b.text === "string") {
-                progress.appendText(b.text);
-              }
-            }
-          } else if (typeof content === "string") {
-            progress.appendText(content);
-          }
-        }
-
-        // --- Result: finalize ---
         if (event.type === "result") {
-          // Stop timer + await any in-flight flush BEFORE sending final message.
-          await progress.finish();
+          if (event.isError) {
+            await this.finalizeProgressError(progress, msg.chatId, `Error: ${event.result ?? "Unknown error"}`, msg.messageId);
+            break;
+          }
 
           const buf = progress.getBuffer();
           const finalText = buf.length > 0
             ? buf
             : (typeof event.result === "string" && event.result) || "";
 
-          if (finalText.length > 0) {
-            const { text: cleanText, buttons } = extractButtons(finalText);
-            const progressMsgId = progress.getMessageId();
-            const chunks = splitMessage(cleanText);
-            const plainChunks = chunks.map(stripHtml);
-
-            if (buttons.length > 0) {
-              if (progressMsgId) {
-                await this.telegram.deleteMessage(msg.chatId, progressMsgId);
-              }
-              const btnMsgId = await this.telegram.sendWithButtons(
-                msg.chatId, chunks[0], buttons, msg.messageId, "HTML", plainChunks[0],
-              );
-              this.lastButtonMsg.set(msg.chatId, btnMsgId);
-              this.telegram.notifyOutbound(msg.chatId, cleanText, btnMsgId);
-              for (let ci = 1; ci < chunks.length; ci++) {
-                await this.telegram.send({ chatId: msg.chatId, text: chunks[ci], parseMode: "HTML", plainFallback: plainChunks[ci] });
-              }
-            } else if (progressMsgId) {
-              await this.telegram.editMessage(msg.chatId, progressMsgId, chunks[0], undefined, "HTML", plainChunks[0]);
-              // Trigger relay for the final edited content
-              this.telegram.notifyOutbound(msg.chatId, cleanText, progressMsgId);
-              for (let ci = 1; ci < chunks.length; ci++) {
-                await this.telegram.send({ chatId: msg.chatId, text: chunks[ci], parseMode: "HTML", plainFallback: plainChunks[ci] });
-              }
-            } else {
-              for (let i = 0; i < chunks.length; i++) {
-                await this.telegram.send({
-                  chatId: msg.chatId,
-                  text: chunks[i],
-                  parseMode: "HTML",
-                  plainFallback: plainChunks[i],
-                  ...(i === 0 ? { replyToMessageId: msg.messageId } : {}),
-                });
-              }
-            }
-          } else if (event.is_error) {
-            await this.telegram.send({
-              chatId: msg.chatId,
-              text: `Error: ${event.result ?? "Unknown error"}`,
-            });
-          }
+          await this.sendMainResult(msg, progress, finalText);
           break;
         }
 
@@ -511,6 +440,112 @@ export class BotInstance {
       if (latest.length > 0) {
         this.messageStore.advanceCursor(session.sessionId, latest[0].id);
       }
+    }
+  }
+
+  private applyEngineSessionEvent(sessionId: string, event: EngineEvent): void {
+    if (event.type !== "session_started") return;
+
+    const patch: { engineType: string; engineSessionId: string; claudeSessionId?: string } = {
+      engineType: this.gatewayConfig.engine.type,
+      engineSessionId: event.sessionId,
+    };
+    if (this.gatewayConfig.engine.type === "claude") {
+      patch.claudeSessionId = event.sessionId;
+    }
+    this.sessionManager.update(sessionId, patch);
+  }
+
+  private applyProgressEvent(progress: ProgressTracker, event: EngineEvent): void {
+    if (event.type === "thinking_started") {
+      progress.startThinking();
+    } else if (event.type === "tool_started") {
+      progress.startTool(event.name, event.detail);
+    } else if (event.type === "text") {
+      progress.appendText(event.text);
+    }
+  }
+
+  private async sendMainResult(msg: InboundMessage, progress: ProgressTracker, finalText: string): Promise<void> {
+    // Stop timer + await any in-flight flush BEFORE sending final message.
+    await progress.finish();
+
+    if (finalText.length === 0) return;
+
+    const { text: cleanText, buttons } = extractButtons(finalText);
+    const progressMsgId = progress.getMessageId();
+    const chunks = splitMessage(cleanText);
+    const plainChunks = chunks.map(stripHtml);
+
+    if (buttons.length > 0) {
+      if (progressMsgId) {
+        await this.telegram.deleteMessage(msg.chatId, progressMsgId);
+      }
+      const btnMsgId = await this.telegram.sendWithButtons(
+        msg.chatId, chunks[0], buttons, msg.messageId, "HTML", plainChunks[0],
+      );
+      this.lastButtonMsg.set(msg.chatId, btnMsgId);
+      this.telegram.notifyOutbound(msg.chatId, cleanText, btnMsgId);
+      for (let ci = 1; ci < chunks.length; ci++) {
+        await this.telegram.send({ chatId: msg.chatId, text: chunks[ci], parseMode: "HTML", plainFallback: plainChunks[ci] });
+      }
+    } else if (progressMsgId) {
+      await this.telegram.editMessage(msg.chatId, progressMsgId, chunks[0], undefined, "HTML", plainChunks[0]);
+      this.telegram.notifyOutbound(msg.chatId, cleanText, progressMsgId);
+      for (let ci = 1; ci < chunks.length; ci++) {
+        await this.telegram.send({ chatId: msg.chatId, text: chunks[ci], parseMode: "HTML", plainFallback: plainChunks[ci] });
+      }
+    } else {
+      for (let i = 0; i < chunks.length; i++) {
+        await this.telegram.send({
+          chatId: msg.chatId,
+          text: chunks[i],
+          parseMode: "HTML",
+          plainFallback: plainChunks[i],
+          ...(i === 0 ? { replyToMessageId: msg.messageId } : {}),
+        });
+      }
+    }
+  }
+
+  private async sendPlainResult(msg: InboundMessage, progress: ProgressTracker, finalText: string): Promise<void> {
+    await progress.finish();
+
+    if (finalText.length === 0) return;
+
+    const progressMsgId = progress.getMessageId();
+    const chunks = splitMessage(finalText);
+    const plainChunks = chunks.map(stripHtml);
+    if (progressMsgId) {
+      await this.telegram.editMessage(msg.chatId, progressMsgId, chunks[0], undefined, "HTML", plainChunks[0]);
+      for (let ci = 1; ci < chunks.length; ci++) {
+        await this.telegram.send({ chatId: msg.chatId, text: chunks[ci], parseMode: "HTML", plainFallback: plainChunks[ci] });
+      }
+    } else {
+      for (let i = 0; i < chunks.length; i++) {
+        await this.telegram.send({
+          chatId: msg.chatId,
+          text: chunks[i],
+          parseMode: "HTML",
+          plainFallback: plainChunks[i],
+          ...(i === 0 ? { replyToMessageId: msg.messageId } : {}),
+        });
+      }
+    }
+  }
+
+  private async finalizeProgressError(
+    progress: ProgressTracker,
+    chatId: string,
+    errorText: string,
+    replyToMessageId?: string,
+  ): Promise<void> {
+    await progress.finish();
+    const progressMsgId = progress.getMessageId();
+    if (progressMsgId) {
+      await this.telegram.editMessage(chatId, progressMsgId, errorText);
+    } else {
+      await this.telegram.send({ chatId, text: errorText, replyToMessageId });
     }
   }
 
@@ -562,7 +597,7 @@ export class BotInstance {
     }
 
     const session = this.sessionManager.resolve(msg.chatId, msg.channelType);
-    if (!session.claudeSessionId) {
+    if (!session.engineSessionId && !session.claudeSessionId) {
       await this.telegram.send({
         chatId: msg.chatId,
         text: "No active session to fork from. Send a message first.",
@@ -571,7 +606,13 @@ export class BotInstance {
     }
 
     this.log.info(
-      { chatId: msg.chatId, sessionId: session.sessionId, claudeSessionId: session.claudeSessionId },
+      {
+        chatId: msg.chatId,
+        sessionId: session.sessionId,
+        engineType: session.engineType,
+        engineSessionId: session.engineSessionId,
+        claudeSessionId: session.claudeSessionId,
+      },
       "/btw: forking session",
     );
 
@@ -579,69 +620,27 @@ export class BotInstance {
     progress.start();
 
     try {
-      for await (const event of this.processManager.forkAndAsk(session, question, this.botId)) {
-        if (event.type === "stream_event" && event.event) {
-          const raw = event.event as Record<string, unknown>;
-          if (raw.type === "content_block_start") {
-            const block = raw.content_block as Record<string, unknown> | undefined;
-            if (block?.type === "thinking") progress.startThinking();
-          }
-        }
+      for await (const event of this.processManager.forkAndAsk(session, question, this.botId, this.extraArgs)) {
+        this.applyEngineSessionEvent(session.sessionId, event);
+        this.applyProgressEvent(progress, event);
 
-        if (event.type === "assistant" && event.message) {
-          const content = event.message.content;
-          if (Array.isArray(content)) {
-            for (const block of content) {
-              if (typeof block !== "object" || block === null) continue;
-              const b = block as Record<string, unknown>;
-              if (b.type === "tool_use" && typeof b.name === "string") {
-                progress.startTool(b.name, undefined);
-              }
-              if ("text" in b && typeof b.text === "string") {
-                progress.appendText(b.text);
-              }
-            }
-          } else if (typeof content === "string") {
-            progress.appendText(content);
-          }
+        if (event.type === "error") {
+          await this.finalizeProgressError(progress, msg.chatId, `btw error: ${event.message}`, msg.messageId);
+          break;
         }
 
         if (event.type === "result") {
-          await progress.finish();
+          if (event.isError) {
+            await this.finalizeProgressError(progress, msg.chatId, `btw error: ${event.result ?? "Unknown error"}`, msg.messageId);
+            break;
+          }
+
           const buf = progress.getBuffer();
           const finalText = buf.length > 0
             ? buf
             : (typeof event.result === "string" && event.result) || "";
 
-          if (finalText.length > 0) {
-            const progressMsgId = progress.getMessageId();
-            const chunks = splitMessage(finalText);
-            const plainChunks = chunks.map(stripHtml);
-            if (progressMsgId) {
-              await this.telegram.editMessage(msg.chatId, progressMsgId, chunks[0], undefined, "HTML", plainChunks[0]);
-              for (let ci = 1; ci < chunks.length; ci++) {
-                await this.telegram.send({ chatId: msg.chatId, text: chunks[ci], parseMode: "HTML", plainFallback: plainChunks[ci] });
-              }
-            } else {
-              for (let i = 0; i < chunks.length; i++) {
-                await this.telegram.send({
-                  chatId: msg.chatId,
-                  text: chunks[i],
-                  parseMode: "HTML",
-                  plainFallback: plainChunks[i],
-                  ...(i === 0 ? { replyToMessageId: msg.messageId } : {}),
-                });
-              }
-            }
-          } else if (event.is_error) {
-            const progressMsgId = progress.getMessageId();
-            const errText = `btw error: ${event.result ?? "Unknown error"}`;
-            if (progressMsgId) {
-              await this.telegram.editMessage(msg.chatId, progressMsgId, errText);
-            } else {
-              await this.telegram.send({ chatId: msg.chatId, text: errText });
-            }
-          }
+          await this.sendPlainResult(msg, progress, finalText);
           break;
         }
 
@@ -851,19 +850,28 @@ export class BotInstance {
       try {
         let generatedTitle = "";
         for await (const event of this.processManager.sendMessage(session, messageText, this.botId, this.extraArgs)) {
-          if (event.type === "assistant" && event.message) {
-            const content = event.message.content;
-            if (Array.isArray(content)) {
-              for (const block of content) {
-                if (typeof block === "object" && block !== null && "text" in block) {
-                  generatedTitle += (block as { text: string }).text;
-                }
-              }
-            } else if (typeof content === "string") {
-              generatedTitle += content;
-            }
+          this.applyEngineSessionEvent(session.sessionId, event);
+
+          if (event.type === "thinking_started") {
+            progress.startThinking();
+          } else if (event.type === "tool_started") {
+            progress.startTool(event.name, event.detail);
+          } else if (event.type === "text") {
+            generatedTitle += event.text;
+          } else if (event.type === "error") {
+            await this.finalizeProgressError(progress, msg.chatId, `title error: ${event.message}`, msg.messageId);
+            break;
           }
+
           if (event.type === "result") {
+            if (event.isError) {
+              await this.finalizeProgressError(progress, msg.chatId, `title error: ${event.result ?? "Unknown error"}`, msg.messageId);
+              break;
+            }
+
+            if (!generatedTitle && typeof event.result === "string") {
+              generatedTitle = event.result;
+            }
             await progress.finish();
             const title = generatedTitle.trim().replace(/^["']|["']$/g, "").slice(0, 80) || "(untitled)";
             this.sessionManager.update(session.sessionId, { title });

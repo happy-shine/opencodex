@@ -26,6 +26,8 @@ const TOOL_ICONS: Record<string, string> = {
   Glob: "⊕",
   Grep: "⊕",
   Agent: "◇",
+  MCP: "◇",
+  Todo: "☑",
   WebSearch: "⊙",
   WebFetch: "⊙",
 };

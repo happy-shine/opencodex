@@ -3,7 +3,7 @@ import { parseConfig } from "../config/loader.js";
 import { SessionManager } from "../sessions/manager.js";
 import { checkAccess } from "../auth/access.js";
 import { PairingManager } from "../auth/pairing.js";
-import { buildSpawnArgs, parseStreamEvent } from "../process/claude-cli.js";
+import { buildCodexSpawnArgs, parseCodexJsonLine } from "../engines/codex/parser.js";
 import { splitMessage } from "../channels/telegram/formatter.js";
 
 describe("Integration: full message flow (mocked)", () => {
@@ -33,20 +33,33 @@ channels:
     const session = sm.resolve("111", "telegram");
     expect(session.isActive).toBe(true);
 
-    const spawnArgs = buildSpawnArgs({ binary: config.claude.binary, extraArgs: config.claude.extraArgs });
-    expect(spawnArgs.args).toContain("-p");
-    expect(spawnArgs.args).toContain("--input-format");
+    const spawnArgs = buildCodexSpawnArgs({
+      binary: config.engine.codex.binary,
+      extraArgs: config.engine.codex.extraArgs,
+      sandbox: config.engine.codex.sandbox,
+      approvalPolicy: config.engine.codex.approvalPolicy,
+      prompt: "hello",
+    });
+    expect(spawnArgs.args).toContain("exec");
+    expect(spawnArgs.args).toContain("--json");
 
-    const initEvent = parseStreamEvent('{"type":"system","subtype":"init","session_id":"sess-abc"}');
-    expect(initEvent!.session_id).toBe("sess-abc");
+    const initEvent = parseCodexJsonLine('{"type":"thread.started","thread_id":"thread-abc"}');
+    expect(initEvent!.thread_id).toBe("thread-abc");
 
-    sm.update(session.sessionId, { claudeSessionId: "sess-abc" });
+    sm.update(session.sessionId, { engineType: "codex", engineSessionId: "thread-abc" });
     const updated = sm.resolve("111", "telegram");
-    expect(updated.claudeSessionId).toBe("sess-abc");
+    expect(updated.engineSessionId).toBe("thread-abc");
 
-    const resumeArgs = buildSpawnArgs({ binary: "claude", extraArgs: [], claudeSessionId: "sess-abc" });
-    expect(resumeArgs.args).toContain("--resume");
-    expect(resumeArgs.args).toContain("sess-abc");
+    const resumeArgs = buildCodexSpawnArgs({
+      binary: "codex",
+      extraArgs: [],
+      sandbox: "danger-full-access",
+      approvalPolicy: "never",
+      engineSessionId: "thread-abc",
+      prompt: "hello again",
+    });
+    expect(resumeArgs.args).toContain("resume");
+    expect(resumeArgs.args).toContain("thread-abc");
   });
 
   it("blocks unknown user and triggers pairing", () => {
