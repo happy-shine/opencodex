@@ -75,7 +75,7 @@ describe("ClaudeEngineAdapter", () => {
 });
 
 function createBinary(source: string): string {
-  const dir = mkdtempSync(join(tmpdir(), "openclaude-adapter-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "opencodex-claude-adapter-test-"));
   tempDirs.push(dir);
   const scriptPath = join(dir, "fake-claude.cjs");
   writeFileSync(scriptPath, `#!/usr/bin/env node\n${source}\n`);
@@ -84,8 +84,8 @@ function createBinary(source: string): string {
 }
 
 function createConfig(binary: string): EngineRuntimeConfig {
-  const workspaceDir = mkdtempSync(join(tmpdir(), "openclaude-workspace-test-"));
-  const agentsDir = mkdtempSync(join(tmpdir(), "openclaude-agents-test-"));
+  const workspaceDir = mkdtempSync(join(tmpdir(), "opencodex-workspace-test-"));
+  const agentsDir = mkdtempSync(join(tmpdir(), "opencodex-agents-test-"));
   tempDirs.push(workspaceDir, agentsDir);
   return {
     type: "claude",
