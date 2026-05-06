@@ -106,7 +106,9 @@ export function mapCodexEvent(event: CodexJsonEvent): EngineEvent[] {
   }
 
   if (event.type === "error") {
-    return [{ type: "error", message: extractErrorMessage(event) }];
+    const message = extractErrorMessage(event);
+    if (isTransientReconnectError(message)) return [];
+    return [{ type: "error", message }];
   }
 
   return [];
@@ -197,6 +199,10 @@ function extractErrorMessage(event: CodexJsonEvent): string {
   if (typeof event.error === "string") return event.error;
   if (isRecord(event.error) && typeof event.error.message === "string") return event.error.message;
   return "Codex turn failed";
+}
+
+function isTransientReconnectError(message: string): boolean {
+  return /^Reconnecting\.\.\. \d+\/\d+ \(stream disconnected before completion:/.test(message);
 }
 
 function serverToolDetail(item: CodexItem): string | undefined {

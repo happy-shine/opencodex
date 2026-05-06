@@ -213,6 +213,15 @@ describe("mapCodexEvent", () => {
     expect(events).toEqual([{ type: "error", message: "bad news" }]);
   });
 
+  it("ignores transient reconnect errors while Codex is retrying the stream", () => {
+    const events = mapCodexEvent({
+      type: "error",
+      message: "Reconnecting... 2/5 (stream disconnected before completion: websocket closed by server before response.completed)",
+    });
+
+    expect(events).toEqual([]);
+  });
+
   it("maps unknown or ignored events to an empty list", () => {
     expect(mapCodexEvent({ type: "item.completed", item: { type: "command_execution" } })).toEqual([]);
     expect(mapCodexEvent({ type: "unexpected.event" })).toEqual([]);
