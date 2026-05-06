@@ -38,7 +38,7 @@ Telegram <-> OpenCodex Gateway <-> Codex CLI / Claude Code CLI
 ## 安装
 
 ```bash
-git clone https://github.com/happy-shine/opencodex.git
+git clone https://github.com/happy-shine/openclaude.git opencodex
 cd opencodex
 npm install
 npm run build
@@ -100,7 +100,7 @@ engine:
   idleTimeoutMs: 600000       # 空闲 10 分钟后终止进程
   codex:
     binary: "codex"           # Codex CLI 路径
-    model: "gpt-5.4"          # 模型名称取决于所选引擎
+    # model: "gpt-5.4"
     sandbox: "danger-full-access"
     approvalPolicy: "never"
     extraArgs: []             # 附加 CLI 参数
@@ -182,7 +182,7 @@ opencodex bot soul path            输出 SOUL.md 文件路径
 | `/new` | 开启新会话 |
 | `/sessions` | 列出所有会话（带内联按钮选择器） |
 | `/btw <问题>` | 旁路提问，不打断当前会话 |
-| `/model [名称]` | 查看或切换模型（例如 `gpt-5.4`；可用模型取决于所选引擎） |
+| `/model [名称]` | 取决于引擎。Claude 支持实时切换 `opus`/`sonnet`/`haiku`；Codex 模型请在 `engine.codex.model` 或 `extraArgs` 设置，作用于新回合/新会话 |
 | `/effort [级别]` | 查看或设置思考力度 |
 | `/stop` | 打断引擎当前的回复 |
 | `/help` | 显示帮助 |

@@ -38,7 +38,7 @@ Each conversation runs through a real local CLI engine. OpenCodex manages engine
 ## Install
 
 ```bash
-git clone https://github.com/happy-shine/opencodex.git
+git clone https://github.com/happy-shine/openclaude.git opencodex
 cd opencodex
 npm install
 npm run build
@@ -100,7 +100,7 @@ engine:
   idleTimeoutMs: 600000       # kill idle processes after 10min
   codex:
     binary: "codex"           # path to Codex CLI
-    model: "gpt-5.4"          # engine-dependent model name
+    # model: "gpt-5.4"
     sandbox: "danger-full-access"
     approvalPolicy: "never"
     extraArgs: []             # additional CLI flags
@@ -182,7 +182,7 @@ All `pairing`, `group`, `allow`, and `bot soul` commands support `--bot <name>` 
 | `/new` | Start a new session |
 | `/sessions` | List all sessions with inline picker buttons |
 | `/btw <question>` | Ask a side question without interrupting the current session |
-| `/model [name]` | Show or set the model (for example `gpt-5.4`; available models depend on the selected engine) |
+| `/model [name]` | Engine-dependent. Claude supports live `opus`/`sonnet`/`haiku`; set Codex models in `engine.codex.model` or `extraArgs` for new turns/sessions |
 | `/effort [level]` | Show or set effort level |
 | `/stop` | Interrupt the engine's current response |
 | `/help` | Show help |
