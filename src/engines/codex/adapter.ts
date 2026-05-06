@@ -16,6 +16,18 @@ import {
 
 type CodexEngineProcess = EngineProcess & { process?: ChildProcess };
 
+interface CodexProcessLifecycle {
+  proc: ChildProcess;
+  exit: Promise<CodexExitInfo>;
+  exited: boolean;
+}
+
+interface CodexExitInfo {
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  error?: Error;
+}
+
 export class CodexEngineAdapter implements EngineAdapter {
   readonly type = "codex" as const;
 
@@ -36,7 +48,10 @@ export class CodexEngineAdapter implements EngineAdapter {
     }
 
     if (this.processes.size >= this.config.maxProcesses) {
-      this.evictOldest();
+      const evicted = this.evictOldest();
+      if (!evicted) {
+        throw new Error("No available Codex process slots");
+      }
     }
 
     const sessionDir = this.getSessionDir(session, botId);
@@ -56,31 +71,36 @@ export class CodexEngineAdapter implements EngineAdapter {
   }
 
   async *sendMessage(session: Session, text: string, botId: string, botExtraArgs?: string[]): AsyncGenerator<EngineEvent> {
-    const cp = this.acquire(session, botId) as CodexEngineProcess;
+    let cp: CodexEngineProcess;
+    try {
+      cp = this.acquire(session, botId) as CodexEngineProcess;
+    } catch (err) {
+      yield* terminalErrorEvents(errorMessage(err));
+      return;
+    }
+
     cp.busy = true;
     cp.lastActiveAt = Date.now();
     this.clearIdleTimer(session.sessionId);
 
     const prompt = this.buildPrompt(session, text, botId);
-    const proc = this.spawnCodex({
-      prompt,
-      cwd: cp.workspaceDir,
-      engineSessionId: session.engineSessionId,
-      extraArgs: this.getExtraArgs(botExtraArgs),
-    });
-    cp.process = proc;
 
     try {
-      for await (const event of readCodexEvents(proc)) {
-        const mappedEvents = mapCodexEvent(event);
-        for (const mappedEvent of mappedEvents) {
-          if (mappedEvent.type === "session_started") {
-            cp.engineSessionId = mappedEvent.sessionId;
-            session.engineSessionId = mappedEvent.sessionId;
+      yield* this.runTurn({
+        prompt,
+        cwd: cp.workspaceDir,
+        engineSessionId: session.engineSessionId,
+        extraArgs: this.getExtraArgs(botExtraArgs),
+        onProcess: (proc) => {
+          cp.process = proc;
+        },
+        onEvent: (event) => {
+          if (event.type === "session_started") {
+            cp.engineSessionId = event.sessionId;
+            session.engineSessionId = event.sessionId;
           }
-          yield mappedEvent;
-        }
-      }
+        },
+      });
     } finally {
       cp.busy = false;
       cp.lastActiveAt = Date.now();
@@ -100,16 +120,58 @@ export class CodexEngineAdapter implements EngineAdapter {
       "Forking Codex session for /btw side question",
     );
 
-    const proc = this.spawnCodex({
+    yield* this.runTurn({
       prompt: question,
       cwd,
       engineSessionId: session.engineSessionId,
       extraArgs: this.getExtraArgs(botExtraArgs),
       ephemeral: true,
     });
+  }
 
-    for await (const event of readCodexEvents(proc)) {
-      yield* mapCodexEvent(event);
+  private async *runTurn(input: {
+    prompt: string;
+    cwd: string;
+    engineSessionId?: string;
+    extraArgs: string[];
+    ephemeral?: boolean;
+    onProcess?: (proc: ChildProcess) => void;
+    onEvent?: (event: EngineEvent) => void;
+  }): AsyncGenerator<EngineEvent> {
+    let lifecycle: CodexProcessLifecycle | undefined;
+    let terminalYielded = false;
+
+    try {
+      lifecycle = this.spawnCodex({
+        prompt: input.prompt,
+        cwd: input.cwd,
+        engineSessionId: input.engineSessionId,
+        extraArgs: input.extraArgs,
+        ephemeral: input.ephemeral,
+      });
+      input.onProcess?.(lifecycle.proc);
+
+      for await (const event of readCodexEvents(lifecycle.proc)) {
+        const mappedEvents = mapCodexEvent(event);
+        for (const mappedEvent of mappedEvents) {
+          input.onEvent?.(mappedEvent);
+          if (isTerminalEvent(mappedEvent)) terminalYielded = true;
+          yield mappedEvent;
+        }
+      }
+
+      const exitInfo = await lifecycle.exit;
+      if (!terminalYielded) {
+        yield* terminalErrorEvents(exitMessage(exitInfo));
+      }
+    } catch (err) {
+      if (!terminalYielded) {
+        yield* terminalErrorEvents(errorMessage(err));
+      }
+    } finally {
+      if (lifecycle && !lifecycle.exited) {
+        await terminateChild(lifecycle);
+      }
     }
   }
 
@@ -177,7 +239,7 @@ export class CodexEngineAdapter implements EngineAdapter {
     engineSessionId?: string;
     extraArgs: string[];
     ephemeral?: boolean;
-  }): ChildProcess {
+  }): CodexProcessLifecycle {
     const { cmd, args } = buildCodexSpawnArgs({
       binary: this.config.binary,
       prompt: input.prompt,
@@ -203,7 +265,7 @@ export class CodexEngineAdapter implements EngineAdapter {
       this.log.error({ error: err instanceof Error ? err.message : String(err) }, "Codex process error");
     });
 
-    return proc;
+    return createLifecycle(proc);
   }
 
   private getExtraArgs(botExtraArgs?: string[]): string[] {
@@ -257,7 +319,7 @@ export class CodexEngineAdapter implements EngineAdapter {
     this.processes.delete(sessionId);
   }
 
-  private evictOldest(): void {
+  private evictOldest(): boolean {
     let oldest: CodexEngineProcess | null = null;
     for (const cp of this.processes.values()) {
       if (cp.busy) continue;
@@ -266,7 +328,9 @@ export class CodexEngineAdapter implements EngineAdapter {
     if (oldest) {
       this.log.info({ sessionId: oldest.sessionId }, "Evicting oldest idle Codex metadata");
       this.kill(oldest.sessionId);
+      return true;
     }
+    return false;
   }
 }
 
@@ -289,4 +353,82 @@ function hasModelArg(args: string[]): boolean {
     || arg.startsWith("--model=")
     || (index > 0 && args[index - 1] === "--model")
   ));
+}
+
+function createLifecycle(proc: ChildProcess): CodexProcessLifecycle {
+  let error: Error | undefined;
+  let resolveExit: (info: CodexExitInfo) => void = () => {};
+  const lifecycle: CodexProcessLifecycle = {
+    proc,
+    exited: false,
+    exit: new Promise<CodexExitInfo>((resolve) => {
+      resolveExit = resolve;
+    }),
+  };
+
+  const resolveOnce = (info: CodexExitInfo) => {
+    if (lifecycle.exited) return;
+    lifecycle.exited = true;
+    resolveExit(info);
+  };
+
+  proc.once("error", (err) => {
+    error = err instanceof Error ? err : new Error(String(err));
+    resolveOnce({ code: null, signal: null, error });
+  });
+
+  proc.once("close", (code, signal) => {
+    resolveOnce({ code, signal, error });
+  });
+
+  return lifecycle;
+}
+
+async function terminateChild(lifecycle: CodexProcessLifecycle): Promise<CodexExitInfo | null> {
+  if (lifecycle.exited) return lifecycle.exit;
+
+  lifecycle.proc.kill("SIGTERM");
+  const sigtermResult = await waitForExit(lifecycle, 500);
+  if (sigtermResult) return sigtermResult;
+
+  if (!lifecycle.exited) {
+    lifecycle.proc.kill("SIGKILL");
+  }
+  return waitForExit(lifecycle, 500);
+}
+
+async function waitForExit(lifecycle: CodexProcessLifecycle, timeoutMs: number): Promise<CodexExitInfo | null> {
+  return Promise.race([
+    lifecycle.exit,
+    new Promise<null>((resolve) => {
+      const timer = setTimeout(() => resolve(null), timeoutMs);
+      timer.unref?.();
+    }),
+  ]);
+}
+
+function* terminalErrorEvents(message: string): Generator<EngineEvent> {
+  yield { type: "error", message };
+  yield { type: "result", result: message, isError: true };
+}
+
+function isTerminalEvent(event: EngineEvent): boolean {
+  return event.type === "result" || event.type === "error";
+}
+
+function exitMessage(info: CodexExitInfo): string {
+  if (info.error) {
+    return `Codex process error: ${info.error.message}`;
+  }
+  if (info.signal) {
+    return `Codex process exited after signal ${info.signal}`;
+  }
+  if (info.code !== 0) {
+    return `Codex process exited with code ${info.code}`;
+  }
+  return "Codex process exited before producing a terminal event";
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }

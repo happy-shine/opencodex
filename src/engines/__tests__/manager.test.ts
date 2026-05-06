@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { GatewayConfig } from "../../config/types.js";
 import { ClaudeEngineAdapter } from "../claude/adapter.js";
 import { CodexEngineAdapter } from "../codex/adapter.js";
-import { createEngineManager } from "../manager.js";
+import { createEngineManager, updateEngineFromConfig } from "../manager.js";
 
 const tempDirs: string[] = [];
 
@@ -33,6 +33,17 @@ describe("createEngineManager", () => {
 
     expect(adapter).toBeInstanceOf(ClaudeEngineAdapter);
     expect(adapter.type).toBe("claude");
+  });
+});
+
+describe("updateEngineFromConfig", () => {
+  it("throws when the configured engine type differs from the adapter type", () => {
+    const dataDir = createTempDir();
+    const adapter = createEngineManager(createConfig(), dataDir, pino({ enabled: false }));
+
+    expect(() => updateEngineFromConfig(adapter, createConfig({ type: "claude" }))).toThrow(
+      "Engine type changes require gateway restart",
+    );
   });
 });
 

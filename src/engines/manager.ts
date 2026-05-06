@@ -22,6 +22,10 @@ export function createEngineManager(config: GatewayConfig, dataDir: string, log:
 }
 
 export function updateEngineFromConfig(adapter: EngineAdapter, config: GatewayConfig): void {
+  if (adapter.type !== config.engine.type) {
+    throw new Error("Engine type changes require gateway restart");
+  }
+
   const selected = config.engine[config.engine.type];
   adapter.updateConfig({
     type: config.engine.type,
