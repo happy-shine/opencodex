@@ -18,7 +18,7 @@ Each conversation runs through a real local CLI engine. OpenCodex manages engine
 - **Bot-to-bot relay** — bots can @mention each other in group chats; the gateway routes messages internally without relying on Telegram's bot-to-bot delivery
 - **Session management** — `/new`, `/sessions` with inline buttons. Multiple sessions per chat, each with its own workspace
 - **`/btw` side questions** — ask a non-blocking question in parallel without interrupting the current session
-- **Rich commands** — `/model`, `/effort`, `/stop` for live session control
+- **Rich commands** — `/model` and `/effort` are engine-dependent; `/stop` interrupts the current response
 - **Inline buttons** — session picker and choices rendered as tappable Telegram buttons; stale buttons auto-removed
 - **Access control** — allowlist + pairing code flow for both DMs and groups. No strangers can use your bot
 - **Group chat support** — responds to @mentions and replies; full message history (including bot replies) with sender/timestamp context injected into the engine
@@ -183,7 +183,7 @@ All `pairing`, `group`, `allow`, and `bot soul` commands support `--bot <name>` 
 | `/sessions` | List all sessions with inline picker buttons |
 | `/btw <question>` | Ask a side question without interrupting the current session |
 | `/model [name]` | Engine-dependent. Claude supports live `opus`/`sonnet`/`haiku`; set Codex models in `engine.codex.model` or `extraArgs` for new turns/sessions |
-| `/effort [level]` | Show or set effort level |
+| `/effort [level]` | Engine-dependent. Claude supports live effort control; configure Codex reasoning/effort through Codex config or CLI options when supported |
 | `/stop` | Interrupt the engine's current response |
 | `/help` | Show help |
 

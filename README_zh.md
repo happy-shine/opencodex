@@ -18,7 +18,7 @@ Telegram <-> OpenCodex Gateway <-> Codex CLI / Claude Code CLI
 - **Bot 间中继** — 群聊中 Bot 可以互相 @mention，gateway 在内部路由消息，不依赖 Telegram 的 bot-to-bot 消息投递
 - **会话管理** — `/new`、`/sessions`（带内联按钮）。每个对话可有多个会话，各自独立工作区
 - **`/btw` 旁路提问** — 并行提问，不打断当前会话
-- **丰富的命令** — `/model`、`/effort`、`/stop` 实时控制会话
+- **丰富的命令** — `/model` 和 `/effort` 取决于引擎；`/stop` 可打断当前回复
 - **内联按钮** — 会话选择器和选项以可点击的 Telegram 按钮形式呈现，过期按钮自动清除
 - **访问控制** — 白名单 + 配对码流程，支持私聊和群组。陌生人无法使用你的 Bot
 - **群聊支持** — 响应 @提及和回复；完整消息记录（包括 Bot 回复）带发言人、时间戳上下文注入引擎
@@ -183,7 +183,7 @@ opencodex bot soul path            输出 SOUL.md 文件路径
 | `/sessions` | 列出所有会话（带内联按钮选择器） |
 | `/btw <问题>` | 旁路提问，不打断当前会话 |
 | `/model [名称]` | 取决于引擎。Claude 支持实时切换 `opus`/`sonnet`/`haiku`；Codex 模型请在 `engine.codex.model` 或 `extraArgs` 设置，作用于新回合/新会话 |
-| `/effort [级别]` | 查看或设置思考力度 |
+| `/effort [级别]` | 取决于引擎。Claude 支持实时 effort 控制；Codex reasoning/effort 请在 Codex 配置或 CLI 选项支持时设置 |
 | `/stop` | 打断引擎当前的回复 |
 | `/help` | 显示帮助 |
 
