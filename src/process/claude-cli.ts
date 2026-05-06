@@ -2,24 +2,25 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import type { ChildProcess } from "node:child_process";
 import type { StreamEvent, SpawnConfig } from "./types.js";
+import {
+  buildClaudeSpawnArgs,
+  parseClaudeStreamEvent,
+  type ClaudeSpawnConfig,
+  type ClaudeStreamEvent,
+} from "../engines/claude/parser.js";
+
+export type { ClaudeSpawnConfig, ClaudeStreamEvent };
 
 export function parseStreamEvent(line: string): StreamEvent | null {
-  const trimmed = line.trim();
-  if (!trimmed) return null;
-  try {
-    return JSON.parse(trimmed) as StreamEvent;
-  } catch {
-    return null;
-  }
+  return parseClaudeStreamEvent(line) as StreamEvent | null;
 }
 
 export function buildSpawnArgs(config: SpawnConfig): { cmd: string; args: string[] } {
-  const args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", "bypassPermissions"];
-  if (config.claudeSessionId) {
-    args.push("--resume", config.claudeSessionId);
-  }
-  args.push(...config.extraArgs);
-  return { cmd: config.binary, args };
+  return buildClaudeSpawnArgs({
+    binary: config.binary,
+    extraArgs: config.extraArgs,
+    engineSessionId: config.claudeSessionId,
+  });
 }
 
 export function spawnClaude(config: SpawnConfig, cwd: string): ChildProcess {
