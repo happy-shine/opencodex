@@ -17,12 +17,12 @@ describe("buildCodexSpawnArgs", () => {
 
     expect(result.cmd).toBe("codex");
     expect(result.args).toEqual([
-      "exec",
-      "--json",
-      "--sandbox",
-      "danger-full-access",
       "--ask-for-approval",
       "never",
+      "--sandbox",
+      "danger-full-access",
+      "exec",
+      "--json",
       "--skip-git-repo-check",
       "hello",
     ]);
@@ -39,18 +39,46 @@ describe("buildCodexSpawnArgs", () => {
     });
 
     expect(result.args).toEqual([
+      "--ask-for-approval",
+      "never",
+      "--sandbox",
+      "workspace-write",
       "exec",
       "resume",
       "thread-123",
       "--json",
-      "--sandbox",
-      "workspace-write",
-      "--ask-for-approval",
-      "never",
       "--skip-git-repo-check",
       "--model",
       "gpt-5.4",
       "again",
+    ]);
+  });
+
+  it("puts ephemeral after resume id and before extra args for a resumed turn", () => {
+    const result = buildCodexSpawnArgs({
+      binary: "codex",
+      prompt: "continue",
+      engineSessionId: "thread-456",
+      sandbox: "workspace-write",
+      approvalPolicy: "never",
+      ephemeral: true,
+      extraArgs: ["--model", "gpt-5.4"],
+    });
+
+    expect(result.args).toEqual([
+      "--ask-for-approval",
+      "never",
+      "--sandbox",
+      "workspace-write",
+      "exec",
+      "resume",
+      "thread-456",
+      "--json",
+      "--skip-git-repo-check",
+      "--ephemeral",
+      "--model",
+      "gpt-5.4",
+      "continue",
     ]);
   });
 });
@@ -64,6 +92,11 @@ describe("parseCodexJsonLine", () => {
 
   it("returns null for invalid JSON", () => {
     expect(parseCodexJsonLine("not json")).toBeNull();
+  });
+
+  it("returns null for valid JSON primitives and arrays", () => {
+    expect(parseCodexJsonLine("true")).toBeNull();
+    expect(parseCodexJsonLine("[]")).toBeNull();
   });
 });
 
@@ -98,6 +131,64 @@ describe("mapCodexEvent", () => {
     expect(events).toEqual([{ type: "tool_started", name: "Bash", detail: "npm test" }]);
   });
 
+  it("maps item.started reasoning to thinking_started", () => {
+    const events = mapCodexEvent({
+      type: "item.started",
+      item: { type: "reasoning" },
+    });
+
+    expect(events).toEqual([{ type: "thinking_started" }]);
+  });
+
+  it("maps item.started mcp_tool_call to tool_started MCP with server.tool detail", () => {
+    const events = mapCodexEvent({
+      type: "item.started",
+      item: {
+        type: "mcp_tool_call",
+        server: "github",
+        tool: "search_issues",
+      },
+    });
+
+    expect(events).toEqual([{ type: "tool_started", name: "MCP", detail: "github.search_issues" }]);
+  });
+
+  it("maps item.started web_search to tool_started WebSearch with query detail", () => {
+    const events = mapCodexEvent({
+      type: "item.started",
+      item: {
+        type: "web_search",
+        query: "Codex CLI docs",
+      },
+    });
+
+    expect(events).toEqual([{ type: "tool_started", name: "WebSearch", detail: "Codex CLI docs" }]);
+  });
+
+  it("maps item.started file_change to tool_started Edit", () => {
+    const events = mapCodexEvent({
+      type: "item.started",
+      item: {
+        type: "file_change",
+        path: "src/index.ts",
+      },
+    });
+
+    expect(events).toEqual([{ type: "tool_started", name: "Edit", detail: "src/index.ts" }]);
+  });
+
+  it("maps item.started collab_tool_call to tool_started Agent", () => {
+    const events = mapCodexEvent({
+      type: "item.started",
+      item: {
+        type: "collab_tool_call",
+        name: "reviewer",
+      },
+    });
+
+    expect(events).toEqual([{ type: "tool_started", name: "Agent", detail: "reviewer" }]);
+  });
+
   it("maps turn.completed to result", () => {
     const events = mapCodexEvent({ type: "turn.completed", result: "done" });
 
@@ -117,5 +208,10 @@ describe("mapCodexEvent", () => {
     const events = mapCodexEvent({ type: "error", message: "bad news" });
 
     expect(events).toEqual([{ type: "error", message: "bad news" }]);
+  });
+
+  it("maps unknown or ignored events to an empty list", () => {
+    expect(mapCodexEvent({ type: "item.completed", item: { type: "command_execution" } })).toEqual([]);
+    expect(mapCodexEvent({ type: "unexpected.event" })).toEqual([]);
   });
 });

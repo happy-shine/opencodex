@@ -29,25 +29,26 @@ interface CodexItem {
   query?: string;
   path?: string;
   action?: string;
+  server?: string;
+  tool?: string;
   summary?: string;
   content?: unknown;
   [key: string]: unknown;
 }
 
 export function buildCodexSpawnArgs(config: CodexSpawnConfig): { cmd: string; args: string[] } {
-  const args = ["exec"];
+  const args = [
+    "--ask-for-approval",
+    config.approvalPolicy,
+    "--sandbox",
+    config.sandbox,
+    "exec",
+  ];
   if (config.engineSessionId) {
     args.push("resume", config.engineSessionId);
   }
 
-  args.push(
-    "--json",
-    "--sandbox",
-    config.sandbox,
-    "--ask-for-approval",
-    config.approvalPolicy,
-    "--skip-git-repo-check",
-  );
+  args.push("--json", "--skip-git-repo-check");
 
   if (config.ephemeral) {
     args.push("--ephemeral");
@@ -61,7 +62,8 @@ export function parseCodexJsonLine(line: string): CodexJsonEvent | null {
   const trimmed = line.trim();
   if (!trimmed) return null;
   try {
-    return JSON.parse(trimmed) as CodexJsonEvent;
+    const parsed: unknown = JSON.parse(trimmed);
+    return isRecord(parsed) && !Array.isArray(parsed) ? parsed : null;
   } catch {
     return null;
   }
@@ -122,15 +124,15 @@ export function mapCodexTool(item: CodexItem | null): EngineEvent[] {
   if (item.type === "mcp_tool_call") {
     return [{
       type: "tool_started",
-      name: item.name ?? "MCP Tool",
-      detail: detailFromValue(item.arguments ?? item.input ?? item.id),
+      name: "MCP",
+      detail: detailFromValue(serverToolDetail(item) ?? item.arguments ?? item.input ?? item.id),
     }];
   }
 
   if (item.type === "web_search") {
     return [{
       type: "tool_started",
-      name: "Web Search",
+      name: "WebSearch",
       detail: detailFromValue(item.query ?? item.input ?? item.arguments),
     }];
   }
@@ -138,7 +140,7 @@ export function mapCodexTool(item: CodexItem | null): EngineEvent[] {
   if (item.type === "file_change") {
     return [{
       type: "tool_started",
-      name: "File Change",
+      name: "Edit",
       detail: detailFromValue(item.path ?? item.action ?? item.input ?? item.arguments),
     }];
   }
@@ -146,8 +148,8 @@ export function mapCodexTool(item: CodexItem | null): EngineEvent[] {
   if (item.type === "collab_tool_call") {
     return [{
       type: "tool_started",
-      name: item.name ?? "Collab Tool",
-      detail: detailFromValue(item.arguments ?? item.input ?? item.id),
+      name: "Agent",
+      detail: detailFromValue(item.name ?? item.arguments ?? item.input ?? item.id),
     }];
   }
 
@@ -189,6 +191,14 @@ function extractErrorMessage(event: CodexJsonEvent): string {
   if (typeof event.error === "string") return event.error;
   if (isRecord(event.error) && typeof event.error.message === "string") return event.error.message;
   return "Codex turn failed";
+}
+
+function serverToolDetail(item: CodexItem): string | undefined {
+  if (typeof item.server === "string" && typeof item.tool === "string") {
+    return `${item.server}.${item.tool}`;
+  }
+  if (typeof item.name === "string") return item.name;
+  return undefined;
 }
 
 function detailFromValue(value: unknown): string | undefined {
