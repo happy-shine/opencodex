@@ -1,18 +1,19 @@
-# OpenClaude
+# OpenCodex
 
-A gateway that bridges chat platforms (Telegram, Discord, etc.) to [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI — turning Claude into an always-on chatbot with session management, access control, and file sharing.
+A gateway that bridges chat platforms (Telegram, Discord, etc.) to Codex CLI by default, while keeping Claude Code available as an optional adapter. It turns a local CLI engine into an always-on chatbot with session management, access control, group history, personality, and file sharing.
 
 ```
-Telegram ←→ OpenClaude Gateway ←→ Claude Code CLI (subprocess)
+Telegram <-> OpenCodex Gateway <-> Codex CLI / Claude Code CLI
 ```
 
-Each conversation spawns a real Claude Code process. Claude can read/write files, run commands, search the web — everything it can do in your terminal, now accessible from your phone.
+Each conversation runs through a real local CLI engine. OpenCodex manages engine sessions, access policy, files, group chat history, and per-bot personality so the same assistant experience is available from Telegram.
 
 [中文文档](README_zh.md)
 
 ## Features
 
-- **Claude Code as engine** — not an API wrapper. Each session is a full Claude Code subprocess with tool use, file I/O, and bash access
+- **Codex as default engine** — runs `codex exec --json`, resumes Codex threads, and keeps local CLI behavior instead of wrapping a hosted chat API
+- **Claude adapter retained** — set `engine.type: claude` to run Claude Code through the same gateway
 - **Multi-bot support** — run multiple bots on a single gateway, each with independent config, personality, and access control
 - **Bot-to-bot relay** — bots can @mention each other in group chats; the gateway routes messages internally without relying on Telegram's bot-to-bot delivery
 - **Session management** — `/new`, `/sessions` with inline buttons. Multiple sessions per chat, each with its own workspace
@@ -20,27 +21,28 @@ Each conversation spawns a real Claude Code process. Claude can read/write files
 - **Rich commands** — `/model`, `/effort`, `/stop` for live session control
 - **Inline buttons** — session picker and choices rendered as tappable Telegram buttons; stale buttons auto-removed
 - **Access control** — allowlist + pairing code flow for both DMs and groups. No strangers can use your bot
-- **Group chat support** — responds to @mentions and replies; full message history (including bot replies) with sender/timestamp context injected into Claude
-- **File sharing** — upload files to Claude, Claude sends files back to you; reply attachments forwarded. Claude can also retrieve previously shared files via chat history
-- **SOUL.md personality** — customize your bot's personality per-bot. Claude can even edit its own SOUL via user instructions
-- **Live progress** — pulsing status indicator shows what Claude is doing (thinking, reading, writing, running commands)
+- **Group chat support** — responds to @mentions and replies; full message history (including bot replies) with sender/timestamp context injected into the engine
+- **File sharing** — upload files to the engine, receive files back, and forward reply attachments. The engine can also retrieve previously shared files via chat history
+- **SOUL.md personality** — customize your bot's personality per-bot. The assistant can even edit its own SOUL via user instructions
+- **Live progress** — pulsing status indicator shows what the engine is doing (thinking, reading, writing, running commands)
 - **Daemon mode** — runs in background with log persistence, auto-restart on crash
 - **Hot-reload** — config changes (including adding/removing bots) are picked up without restart
 
 ## Prerequisites
 
 - **Node.js** >= 22
-- **Claude Code CLI** installed and authenticated (`npm install -g @anthropic-ai/claude-code`, then `claude` to authenticate)
+- **Codex CLI** installed and authenticated (`npm install -g @openai/codex`, then run `codex`)
 - **Telegram Bot Token** from [@BotFather](https://t.me/BotFather)
+- **Claude Code CLI** only if using the optional Claude adapter (`engine.type: claude`)
 
 ## Install
 
 ```bash
-git clone https://github.com/happy-shine/openclaude.git
-cd openclaude
+git clone https://github.com/happy-shine/opencodex.git
+cd opencodex
 npm install
 npm run build
-npm link        # makes `openclaude` available globally
+npm link        # makes `opencodex` available globally
 ```
 
 ## Quick Start
@@ -48,11 +50,11 @@ npm link        # makes `openclaude` available globally
 **1. Create config**
 
 ```bash
-mkdir -p ~/.openclaude
-cp config.example.yaml ~/.openclaude/config.yaml
+mkdir -p ~/.opencodex
+cp config.example.yaml ~/.opencodex/config.yaml
 ```
 
-Edit `~/.openclaude/config.yaml` and set your bot token:
+Edit `~/.opencodex/config.yaml` and set your bot token:
 
 ```yaml
 bots:
@@ -66,8 +68,8 @@ bots:
 **2. Start the gateway**
 
 ```bash
-openclaude gateway start          # background daemon
-openclaude gateway start -f       # foreground (for debugging)
+opencodex gateway start          # background daemon
+opencodex gateway start -f       # foreground (for debugging)
 ```
 
 **3. Pair your account**
@@ -75,11 +77,11 @@ openclaude gateway start -f       # foreground (for debugging)
 Message your bot on Telegram. It will reply with a pairing code. Approve it:
 
 ```bash
-openclaude pairing list
-openclaude pairing approve <code>
+opencodex pairing list
+opencodex pairing approve <code>
 ```
 
-Done. Start chatting with Claude via Telegram.
+Done. Start chatting with Codex via Telegram.
 
 ## Configuration
 
@@ -88,15 +90,24 @@ Full config example (`config.example.yaml`):
 ```yaml
 gateway:
   port: 18790                 # local API port (for file sending)
-  dataDir: "~/.openclaude"
+  dataDir: "~/.opencodex"
   logLevel: "info"            # debug | info | warn | error
+  logFormat: "pretty"
 
-claude:
-  binary: "claude"            # path to claude CLI
-  model: "sonnet"             # sonnet | opus | haiku | full model ID
+engine:
+  type: "codex"               # codex | claude
+  maxProcesses: 10            # max concurrent engine processes
   idleTimeoutMs: 600000       # kill idle processes after 10min
-  maxProcesses: 10            # max concurrent Claude processes
-  extraArgs: []               # additional CLI flags
+  codex:
+    binary: "codex"           # path to Codex CLI
+    model: "gpt-5.4"          # engine-dependent model name
+    sandbox: "danger-full-access"
+    approvalPolicy: "never"
+    extraArgs: []             # additional CLI flags
+  claude:
+    binary: "claude"          # optional Claude Code adapter
+    model: "sonnet"
+    extraArgs: []
 
 auth:
   defaultPolicy: "pairing"    # default policy for new bots
@@ -130,36 +141,36 @@ bots:
 ## CLI Reference
 
 ```
-openclaude gateway start [options]  Start the gateway
-  -f, --foreground                    Run in foreground
-  -c, --config <path>                 Config file path
-  -v, --verbose                       Debug logging
-openclaude gateway stop             Stop the running gateway
-openclaude gateway restart          Restart the gateway
-openclaude gateway status           Check if gateway is running
-openclaude gateway logs [-f] [-n 50] Tail gateway logs
+opencodex gateway start [options]  Start the gateway
+  -f, --foreground                  Run in foreground
+  -c, --config <path>               Config file path
+  -v, --verbose                     Debug logging
+opencodex gateway stop             Stop the running gateway
+opencodex gateway restart          Restart the gateway
+opencodex gateway status           Check if gateway is running
+opencodex gateway logs [-f] [-n 50] Tail gateway logs
 
-openclaude bot list                 List all configured bots
-openclaude bot add <token> [--name] Add a bot (auto-detects username via Telegram API)
-openclaude bot remove <name>        Remove a bot from config
+opencodex bot list                 List all configured bots
+opencodex bot add <token> [--name] Add a bot (auto-detects username via Telegram API)
+opencodex bot remove <name>        Remove a bot from config
 
-openclaude pairing list             List pending pairing requests
-openclaude pairing approve <code>   Approve a pairing code (auto-detects which bot)
+opencodex pairing list             List pending pairing requests
+opencodex pairing approve <code>   Approve a pairing code (auto-detects which bot)
 
-openclaude group list               List configured groups
-openclaude group add <chatId>       Add a group to allowlist
-openclaude group remove <chatId>    Remove a group
-openclaude group approve <code>     Approve a group pairing code
-openclaude group disable <chatId>   Disable a group without removing
+opencodex group list               List configured groups
+opencodex group add <chatId>       Add a group to allowlist
+opencodex group remove <chatId>    Remove a group
+opencodex group approve <code>     Approve a group pairing code
+opencodex group disable <chatId>   Disable a group without removing
 
-openclaude allow list [channel]     List allowed users
-openclaude allow add <ch> <id>      Add user to allowlist
-openclaude allow remove <ch> <id>   Remove user from allowlist
+opencodex allow list [channel]     List allowed users
+opencodex allow add <ch> <id>      Add user to allowlist
+opencodex allow remove <ch> <id>   Remove user from allowlist
 
-openclaude bot soul show            Show current SOUL.md
-openclaude bot soul edit            Edit SOUL.md in $EDITOR
-openclaude bot soul reset           Delete SOUL.md (reset personality)
-openclaude bot soul path            Print SOUL.md file path
+opencodex bot soul show            Show current SOUL.md
+opencodex bot soul edit            Edit SOUL.md in $EDITOR
+opencodex bot soul reset           Delete SOUL.md (reset personality)
+opencodex bot soul path            Print SOUL.md file path
 ```
 
 All `pairing`, `group`, `allow`, and `bot soul` commands support `--bot <name>` to target a specific bot. When only one bot is configured, the flag is optional.
@@ -171,16 +182,16 @@ All `pairing`, `group`, `allow`, and `bot soul` commands support `--bot <name>` 
 | `/new` | Start a new session |
 | `/sessions` | List all sessions with inline picker buttons |
 | `/btw <question>` | Ask a side question without interrupting the current session |
-| `/model [name]` | Show or set the model (e.g. `opus`, `sonnet`) |
+| `/model [name]` | Show or set the model (for example `gpt-5.4`; available models depend on the selected engine) |
 | `/effort [level]` | Show or set effort level |
-| `/stop` | Interrupt Claude's current response |
+| `/stop` | Interrupt the engine's current response |
 | `/help` | Show help |
 
 In groups, the bot responds when **@mentioned** or **replied to**.
 
 ### `/btw` — Non-blocking Side Questions
 
-`/btw` forks the current Claude session to answer a quick question in parallel — without interrupting the main conversation. Useful for asking something while Claude is still working on a longer task.
+`/btw` forks the current engine session to answer a quick question in parallel, without interrupting the main conversation. Useful for asking something while the assistant is still working on a longer task.
 
 ```
 /btw what's the capital of France?
@@ -188,15 +199,15 @@ In groups, the bot responds when **@mentioned** or **replied to**.
 
 ## Multi-Bot
 
-Run multiple bots on a single gateway. Each bot has its own personality, access control, and session state, but they share the same Claude process pool.
+Run multiple bots on a single gateway. Each bot has its own personality, access control, and session state, but they share the same engine process pool.
 
 ```bash
-openclaude bot add 123456:ABC-DEF      # auto-detects name from Telegram
-openclaude bot add 789012:GHI-JKL --name helper
-openclaude bot list
+opencodex bot add 123456:ABC-DEF      # auto-detects name from Telegram
+opencodex bot add 789012:GHI-JKL --name helper
+opencodex bot list
 ```
 
-Adding or removing bots triggers a hot-reload — no gateway restart needed.
+Adding or removing bots triggers a hot-reload, with no gateway restart needed.
 
 ### Bot-to-Bot Relay
 
@@ -206,7 +217,7 @@ Each bot knows which other bots are in the gateway and will only @mention them w
 
 ## Group Chat
 
-In group chats, OpenClaude records all messages (including bot replies) to a persistent chat history. Claude can query this history via a local HTTP endpoint for context about past conversations.
+In group chats, OpenCodex records all messages (including bot replies) to a persistent chat history. The local engine can query this history via a local HTTP endpoint for context about past conversations.
 
 Groups can be authorized via pairing (bot sends a code, owner approves) or pre-configured in `config.yaml`.
 
@@ -215,34 +226,34 @@ Groups can be authorized via pairing (bot sends a code, owner approves) or pre-c
 Customize your bot's personality by creating a `SOUL.md` file:
 
 ```bash
-openclaude bot soul edit
+opencodex bot soul edit
 ```
 
-Or let Claude edit it — tell your bot "from now on, speak like a pirate" and it will update its own SOUL.md.
+Or let the assistant edit it: tell your bot "from now on, speak like a pirate" and it will update its own SOUL.md.
 
 Changes take effect on the next `/new` session.
 
 ## Architecture
 
 ```
-┌──────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│   Telegram   │────→│  OpenClaude GW   │────→│  Claude Code    │
-│   (grammY)   │←────│                  │←────│  CLI Process    │
-└──────────────┘     │  - Multi-bot     │     │  (subprocess)   │
-                     │  - Bot Relay     │     │  - Tool use     │
-                     │  - Session Mgr   │     │  - File I/O     │
-                     │  - Process Pool  │     │  - Bash access  │
-                     │  - Access Ctrl   │     │  - Web search   │
-                     │  - Progress UI   │     └─────────────────┘
+┌──────────────┐     ┌──────────────────┐     ┌────────────────────┐
+│   Telegram   │<--->│  OpenCodex GW    │<--->│  Codex CLI /       │
+│   (grammY)   │     │                  │     │  Claude Code CLI   │
+└──────────────┘     │  - Multi-bot     │     │  - CLI process     │
+                     │  - Bot Relay     │     │  - Tool use        │
+                     │  - Session Mgr   │     │  - File I/O        │
+                     │  - Process Pool  │     │  - Bash access     │
+                     │  - Access Ctrl   │     │  - Web search      │
+                     │  - Progress UI   │     └────────────────────┘
                      │  - HTTP API      │
                      │  - Chat History  │
                      └──────────────────┘
 ```
 
-**Data directory** (`~/.openclaude/`):
+**Data directory** (`~/.opencodex/`):
 
 ```
-~/.openclaude/
+~/.opencodex/
 ├── config.yaml              # configuration
 ├── logs/gateway.log         # daemon logs
 ├── sessions/                # session state per chat
