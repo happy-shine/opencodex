@@ -14,6 +14,40 @@ describe("expandEnvVars", () => {
 });
 
 describe("parseConfig", () => {
+  it("defaults to Codex engine and OpenCodex data dir", () => {
+    const cfg = parseConfig(`
+bots:
+  - name: "bot"
+    token: "123:abc"
+`);
+    expect(cfg.gateway.dataDir).toBe("~/.opencodex");
+    expect(cfg.engine.type).toBe("codex");
+    expect(cfg.engine.codex.binary).toBe("codex");
+    expect(cfg.engine.maxProcesses).toBe(10);
+  });
+
+  it("loads legacy claude config into engine claude config", () => {
+    const cfg = parseConfig(`
+gateway:
+  dataDir: "~/.openclaude"
+claude:
+  binary: "/usr/local/bin/claude"
+  model: "opus"
+  idleTimeoutMs: 12345
+  maxProcesses: 3
+  extraArgs: ["--debug"]
+bots:
+  - name: "bot"
+    token: "123:abc"
+`);
+    expect(cfg.engine.type).toBe("codex");
+    expect(cfg.engine.maxProcesses).toBe(3);
+    expect(cfg.engine.idleTimeoutMs).toBe(12345);
+    expect(cfg.engine.claude.binary).toBe("/usr/local/bin/claude");
+    expect(cfg.engine.claude.model).toBe("opus");
+    expect(cfg.engine.claude.extraArgs).toEqual(["--debug"]);
+  });
+
   it("parses valid config yaml string", () => {
     const yaml = `
 gateway:

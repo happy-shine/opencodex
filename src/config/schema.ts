@@ -15,18 +15,42 @@ const telegramChannelSchema = z.object({
 
 const gatewaySchema = z.object({
   port: z.number().int().positive().default(18790),
-  dataDir: z.string().default("~/.openclaude"),
+  dataDir: z.string().default("~/.opencodex"),
   logLevel: z.enum(["debug", "info", "warn", "error"]).default("info"),
   logFormat: z.enum(["pretty", "json"]).default("pretty"),
 });
 
-const claudeSchema = z.object({
+const legacyClaudeSchema = z.object({
   binary: z.string().default("claude"),
   model: z.string().optional(),
   idleTimeoutMs: z.number().int().positive().default(600000),
   maxProcesses: z.number().int().positive().default(10),
   extraArgs: z.array(z.string()).default([]),
 });
+
+const codexEngineSchema = z.object({
+  binary: z.string().default("codex"),
+  model: z.string().nullable().optional().transform((v) => v ?? undefined),
+  sandbox: z.enum(["read-only", "workspace-write", "danger-full-access"]).default("danger-full-access"),
+  approvalPolicy: z.enum(["untrusted", "on-request", "never"]).default("never"),
+  extraArgs: z.array(z.string()).default([]),
+});
+
+const claudeEngineSchema = z.object({
+  binary: z.string().default("claude"),
+  model: z.string().optional(),
+  extraArgs: z.array(z.string()).default([]),
+});
+
+const engineSchema = z.object({
+  type: z.enum(["codex", "claude"]).default("codex"),
+  maxProcesses: z.number().int().positive().default(10),
+  idleTimeoutMs: z.number().int().positive().default(600000),
+  codex: codexEngineSchema.default(codexEngineSchema.parse({})),
+  claude: claudeEngineSchema.default(claudeEngineSchema.parse({})),
+});
+
+const claudeSchema = legacyClaudeSchema;
 
 const authSchema = z.object({
   defaultPolicy: z.enum(["open", "pairing", "allowlist", "disabled"]).default("pairing"),
@@ -51,10 +75,28 @@ const botSchema = z.object({
   auth: botAuthSchema.optional(),
 });
 
-export const configSchema = z.object({
+export const configSchema = z.preprocess((input) => {
+  const raw = (input ?? {}) as Record<string, unknown>;
+  const legacyClaude = raw.claude as Record<string, unknown> | undefined;
+  const engine = { ...((raw.engine as Record<string, unknown> | undefined) ?? {}) };
+
+  if (legacyClaude) {
+    engine.maxProcesses ??= legacyClaude.maxProcesses;
+    engine.idleTimeoutMs ??= legacyClaude.idleTimeoutMs;
+    engine.claude = {
+      ...((engine.claude as Record<string, unknown> | undefined) ?? {}),
+      binary: legacyClaude.binary,
+      model: legacyClaude.model,
+      extraArgs: legacyClaude.extraArgs,
+    };
+  }
+
+  return { ...raw, engine };
+}, z.object({
   gateway: gatewaySchema.default(gatewaySchema.parse({})),
+  engine: engineSchema.default(engineSchema.parse({})),
   claude: claudeSchema.default(claudeSchema.parse({})),
   auth: authSchema.default(authSchema.parse({})),
   channels: channelsSchema.optional(),
   bots: z.array(botSchema).optional(),
-});
+}));

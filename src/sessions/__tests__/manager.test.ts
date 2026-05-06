@@ -72,4 +72,17 @@ describe("SessionManager", () => {
     expect(updated.title).toBe("My chat");
     expect(updated.claudeSessionId).toBe("claude-123");
   });
+
+  it("updates neutral engine session fields while preserving claudeSessionId", () => {
+    const s = mgr.resolve("chat1", "telegram");
+    mgr.update(s.sessionId, {
+      engineType: "codex",
+      engineSessionId: "thread-123",
+      claudeSessionId: "claude-123",
+    });
+    const updated = mgr.resolve("chat1", "telegram");
+    expect(updated.engineType).toBe("codex");
+    expect(updated.engineSessionId).toBe("thread-123");
+    expect(updated.claudeSessionId).toBe("claude-123");
+  });
 });

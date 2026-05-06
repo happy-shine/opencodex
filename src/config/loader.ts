@@ -4,20 +4,28 @@ import { parse as parseYaml } from "yaml";
 import { configSchema } from "./schema.js";
 import type { GatewayConfig, ResolvedBotConfig, BotConfig } from "./types.js";
 
-const DEFAULT_CONFIG = `# OpenClaude Configuration
-# Docs: https://github.com/happy-shine/openclaude
+const DEFAULT_CONFIG = `# OpenCodex Configuration
+# Docs: https://github.com/happy-shine/opencodex
 
 gateway:
   port: 18790
-  dataDir: "~/.openclaude"
+  dataDir: "~/.opencodex"
   logLevel: "info"
+  logFormat: "pretty"
 
-claude:
-  binary: "claude"
-  model: "sonnet"
-  idleTimeoutMs: 600000
+engine:
+  type: "codex"
   maxProcesses: 10
-  extraArgs: []
+  idleTimeoutMs: 600000
+  codex:
+    binary: "codex"
+    sandbox: "danger-full-access"
+    approvalPolicy: "never"
+    extraArgs: []
+  claude:
+    binary: "claude"
+    model: "sonnet"
+    extraArgs: []
 
 auth:
   defaultPolicy: "pairing"
@@ -39,14 +47,14 @@ export function parseConfig(yamlStr: string): GatewayConfig {
 
 export function loadConfig(configPath?: string): GatewayConfig {
   const resolvedPath = configPath
-    ?? resolve(process.env.HOME ?? "~", ".openclaude", "config.yaml");
+    ?? resolve(process.env.HOME ?? "~", ".opencodex", "config.yaml");
 
   if (!existsSync(resolvedPath)) {
     // Auto-create default config
     mkdirSync(dirname(resolvedPath), { recursive: true });
     writeFileSync(resolvedPath, DEFAULT_CONFIG);
     console.log(`Created default config at ${resolvedPath}`);
-    console.log(`Edit it to add your bot token under bots[], then run: openclaude gateway start`);
+    console.log(`Edit it to add your bot token under bots[], then run: opencodex gateway start`);
   }
 
   const content = readFileSync(resolvedPath, "utf-8");
@@ -70,8 +78,10 @@ export function resolveDataDir(config: GatewayConfig): string {
  */
 export function resolveBots(config: GatewayConfig): ResolvedBotConfig[] {
   const defaultPolicy = config.auth.defaultPolicy;
-  const defaultModel = config.claude.model;
-  const defaultExtraArgs = config.claude.extraArgs;
+  const selectedEngine = config.engine.type;
+  const selectedEngineConfig = config.engine[selectedEngine];
+  const defaultModel = selectedEngineConfig.model;
+  const defaultExtraArgs = selectedEngineConfig.extraArgs;
 
   let bots: BotConfig[];
 

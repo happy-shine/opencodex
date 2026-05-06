@@ -2,6 +2,8 @@ export interface Session {
   sessionId: string;
   chatId: string;
   channelType: string;
+  engineType?: string;
+  engineSessionId?: string;
   claudeSessionId?: string;
   createdAt: number;
   lastActiveAt: number;

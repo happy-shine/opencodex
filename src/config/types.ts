@@ -1,9 +1,28 @@
+export type EngineType = "codex" | "claude";
+
 export interface GatewayConfig {
   gateway: {
     port: number;
     dataDir: string;
     logLevel: "debug" | "info" | "warn" | "error";
     logFormat: "pretty" | "json";
+  };
+  engine: {
+    type: EngineType;
+    maxProcesses: number;
+    idleTimeoutMs: number;
+    codex: {
+      binary: string;
+      model?: string;
+      sandbox: "read-only" | "workspace-write" | "danger-full-access";
+      approvalPolicy: "untrusted" | "on-request" | "never";
+      extraArgs: string[];
+    };
+    claude: {
+      binary: string;
+      model?: string;
+      extraArgs: string[];
+    };
   };
   claude: {
     binary: string;

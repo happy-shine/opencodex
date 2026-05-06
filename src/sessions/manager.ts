@@ -98,7 +98,9 @@ export class SessionManager {
     return state ? [...state.sessions] : [];
   }
 
-  update(sessionId: string, patch: Partial<Pick<Session, "title" | "claudeSessionId" | "lastActiveAt">>): void {
+  update(sessionId: string, patch: Partial<Pick<Session,
+    "title" | "engineType" | "engineSessionId" | "claudeSessionId" | "lastActiveAt"
+  >>): void {
     for (const state of this.chats.values()) {
       const session = state.sessions.find((s) => s.sessionId === sessionId);
       if (session) {
