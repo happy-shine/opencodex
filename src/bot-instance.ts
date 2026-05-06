@@ -16,6 +16,16 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from "
 
 const SESSIONS_PER_PAGE = 10;
 
+export function getBtwForkSessionId(
+  engineType: GatewayConfig["engine"]["type"],
+  session: { engineSessionId?: string; claudeSessionId?: string },
+): string | undefined {
+  if (engineType === "codex") {
+    return session.engineSessionId;
+  }
+  return session.engineSessionId ?? session.claudeSessionId;
+}
+
 export class BotInstance {
   readonly botId: string;
   readonly name: string;
@@ -597,7 +607,8 @@ export class BotInstance {
     }
 
     const session = this.sessionManager.resolve(msg.chatId, msg.channelType);
-    if (!session.engineSessionId && !session.claudeSessionId) {
+    const forkSessionId = getBtwForkSessionId(this.gatewayConfig.engine.type, session);
+    if (!forkSessionId) {
       await this.telegram.send({
         chatId: msg.chatId,
         text: "No active session to fork from. Send a message first.",
@@ -620,16 +631,18 @@ export class BotInstance {
     progress.start();
 
     try {
+      let terminalSeen = false;
       for await (const event of this.processManager.forkAndAsk(session, question, this.botId, this.extraArgs)) {
-        this.applyEngineSessionEvent(session.sessionId, event);
         this.applyProgressEvent(progress, event);
 
         if (event.type === "error") {
+          terminalSeen = true;
           await this.finalizeProgressError(progress, msg.chatId, `btw error: ${event.message}`, msg.messageId);
           break;
         }
 
         if (event.type === "result") {
+          terminalSeen = true;
           if (event.isError) {
             await this.finalizeProgressError(progress, msg.chatId, `btw error: ${event.result ?? "Unknown error"}`, msg.messageId);
             break;
@@ -645,6 +658,10 @@ export class BotInstance {
         }
 
         await progress.flush();
+      }
+
+      if (!terminalSeen) {
+        await this.finalizeProgressError(progress, msg.chatId, "btw error: No response from side session.", msg.messageId);
       }
     } catch (err) {
       await progress.finish();
