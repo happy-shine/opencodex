@@ -1,42 +1,39 @@
-# OpenClaude Configuration
-# Copy to ~/.openclaude/config.yaml and edit
-# Docs: https://github.com/happy-shine/openclaude
+# OpenCodex Configuration
+# Copy to ~/.opencodex/config.yaml and edit
+# Docs: https://github.com/happy-shine/opencodex
 
 gateway:
   port: 18790
-  dataDir: "~/.openclaude"
-  logLevel: "info"               # debug | info | warn | error
-  logFormat: "pretty"            # pretty | json
+  dataDir: "~/.opencodex"
+  logLevel: "info"
+  logFormat: "pretty"
 
-claude:
-  binary: "claude"
-  model: "sonnet"                # sonnet, opus, haiku, or full model ID
-  idleTimeoutMs: 600000          # 10 minutes idle timeout for subprocesses
+engine:
+  type: "codex"                 # codex | claude
   maxProcesses: 10
-  extraArgs: []
+  idleTimeoutMs: 600000
+  codex:
+    binary: "codex"
+    # model: "gpt-5.4"
+    sandbox: "danger-full-access"
+    approvalPolicy: "never"
+    extraArgs: []
+  claude:
+    binary: "claude"
+    model: "sonnet"
+    extraArgs: []
 
 auth:
-  defaultPolicy: "pairing"      # open | pairing | allowlist | disabled
+  defaultPolicy: "pairing"
 
-# Multi-bot configuration (recommended)
 bots:
   - name: "my-bot"
     token: "${TELEGRAM_BOT_TOKEN}"
-    # model: "opus"              # Override global model per bot
-    # extraArgs: []              # Override global extraArgs per bot
     auth:
-      dmPolicy: "pairing"       # open | pairing | allowlist | disabled
-      groupPolicy: "disabled"   # open | pairing | allowlist | disabled
-      allowFrom: []             # Pre-approved Telegram user IDs
-      groups:                   # Per-group settings (key = group chat ID)
+      dmPolicy: "pairing"
+      groupPolicy: "disabled"
+      allowFrom: []
+      groups:
         # "-1001234567890":
         #   enabled: true
-        #   allowFrom: []       # Per-group user allowlist
-
-  # Add more bots:
-  # - name: "another-bot"
-  #   token: "${ANOTHER_BOT_TOKEN}"
-  #   model: "haiku"
-  #   auth:
-  #     dmPolicy: "pairing"
-  #     groupPolicy: "pairing"
+        #   allowFrom: []

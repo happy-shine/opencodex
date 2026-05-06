@@ -9,7 +9,7 @@ net.setDefaultAutoSelectFamily(false);
 import { Command } from "commander";
 import pino from "pino";
 import { loadConfig, resolveBots } from "./config/loader.js";
-import type { GatewayConfig } from "./config/types.js";
+import type { EngineType, GatewayConfig } from "./config/types.js";
 import { Gateway } from "./gateway.js";
 import { PairingManager } from "./auth/pairing.js";
 import { spawn, spawnSync } from "node:child_process";
@@ -28,8 +28,8 @@ import { parseDocument } from "yaml";
 const program = new Command();
 
 program
-  .name("openclaude")
-  .description("Gateway bridging chat platforms to Claude Code CLI")
+  .name("opencodex")
+  .description("Gateway bridging chat platforms to Codex CLI")
   .version("0.1.0");
 
 /** Resolve the data directory from config or default */
@@ -38,7 +38,7 @@ function getDataDir(configPath?: string): string {
     const config = loadConfig(configPath);
     return resolve(config.gateway.dataDir.replace(/^~/, process.env.HOME ?? ""));
   } catch {
-    return resolve(process.env.HOME ?? "~", ".openclaude");
+    return resolve(process.env.HOME ?? "~", ".opencodex");
   }
 }
 
@@ -101,41 +101,35 @@ const CLAWD_POSES = [
 function printBanner(): void {
   const pose = CLAWD_POSES[Math.floor(Math.random() * CLAWD_POSES.length)];
   console.log("");
-  console.log(`  ${pose[0]} OpenClaude v0.1.0`);
-  console.log(`  ${pose[1]} Claude Code Gateway`);
+  console.log(`  ${pose[0]} OpenCodex v0.1.0`);
+  console.log(`  ${pose[1]} Codex CLI Gateway`);
   console.log(`  ${pose[2]}`);
   console.log("");
 }
 
-/** Check if Claude Code CLI is installed and accessible */
-function checkClaudeCli(configPath?: string): void {
-  let binary = "claude";
+/** Check if the configured local engine CLI is installed and accessible */
+function checkEngineCli(configPath?: string): void {
+  let binary = "codex";
+  let engine: EngineType = "codex";
   try {
     const config = loadConfig(configPath);
-    if (config.claude.binary) binary = config.claude.binary;
+    engine = config.engine.type;
+    binary = config.engine[engine].binary;
   } catch {}
 
   const result = spawnSync(binary, ["--version"], { stdio: "pipe", timeout: 5000 });
   if (result.error || result.status !== 0) {
-    console.error(`Error: Claude Code CLI not found ("${binary}").`);
+    console.error(`Error: ${engine} CLI not found ("${binary}").`);
     console.error("");
-    console.error("OpenClaude requires Claude Code CLI as its engine.");
-    console.error("Install it with:");
-    console.error("");
-    console.error("  npm install -g @anthropic-ai/claude-code");
-    console.error("");
-    console.error("Then authenticate:");
-    console.error("");
-    console.error("  claude");
-    console.error("");
-    console.error("Docs: https://docs.anthropic.com/en/docs/claude-code");
+    console.error("OpenCodex requires a local CLI engine.");
+    console.error(engine === "codex"
+      ? "Install Codex with: npm install -g @openai/codex"
+      : "Install Claude Code with: npm install -g @anthropic-ai/claude-code");
     process.exit(1);
   }
 
   const version = result.stdout?.toString().trim();
-  if (version) {
-    console.log(`Claude Code CLI: ${version}`);
-  }
+  if (version) console.log(`${engine} CLI: ${version}`);
 }
 
 // --- gateway ---
@@ -148,13 +142,13 @@ gateway
   .option("-v, --verbose", "Enable debug logging")
   .option("-f, --foreground", "Run in foreground (default: background daemon)")
   .action(async (opts: { config?: string; verbose?: boolean; foreground?: boolean }) => {
-    checkClaudeCli(opts.config);
+    checkEngineCli(opts.config);
     const dataDir = getDataDir(opts.config);
 
     // Check if already running
     const existingPid = getRunningPid(dataDir);
     if (existingPid) {
-      console.error(`Gateway already running (PID ${existingPid}). Use 'openclaude gateway restart' to restart.`);
+      console.error(`Gateway already running (PID ${existingPid}). Use 'opencodex gateway restart' to restart.`);
       process.exit(1);
     }
 
@@ -196,7 +190,7 @@ gateway
     }
 
     // Foreground mode
-    const configPath = opts.config ?? resolve(process.env.HOME ?? "~", ".openclaude", "config.yaml");
+    const configPath = opts.config ?? resolve(process.env.HOME ?? "~", ".opencodex", "config.yaml");
     const config = loadConfig(configPath);
     if (opts.verbose) config.gateway.logLevel = "debug";
 
@@ -294,7 +288,7 @@ gateway
   .option("-c, --config <path>", "Path to config file")
   .option("-v, --verbose", "Enable debug logging")
   .action(async (opts: { config?: string; verbose?: boolean }) => {
-    checkClaudeCli(opts.config);
+    checkEngineCli(opts.config);
     const dataDir = getDataDir(opts.config);
     const pid = getRunningPid(dataDir);
 
@@ -790,7 +784,7 @@ bot
     const dataDir = getDataDir(opts.config);
 
     if (bots.length === 0) {
-      console.log("No bots configured. Add one with: openclaude bot add <token>");
+      console.log("No bots configured. Add one with: opencodex bot add <token>");
       return;
     }
 
@@ -865,7 +859,7 @@ bot
     if (!name) name = `bot-${botId}`;
 
     // Modify config.yaml using Document API to preserve formatting
-    const configPath = opts.config ?? resolve(process.env.HOME ?? "~", ".openclaude", "config.yaml");
+    const configPath = opts.config ?? resolve(process.env.HOME ?? "~", ".opencodex", "config.yaml");
     const content = readFileSync(configPath, "utf-8");
     const doc = parseDocument(content);
 
@@ -893,10 +887,10 @@ bot
         await fetch(`http://127.0.0.1:${config.gateway.port}/api/reload-config`, { method: "POST" });
         console.log("Gateway reloaded — new bot should be starting.");
       } catch {
-        console.log("Gateway is running but reload failed. Restart with: openclaude gateway restart");
+        console.log("Gateway is running but reload failed. Restart with: opencodex gateway restart");
       }
     } else {
-      console.log("Start the gateway with: openclaude gateway start");
+      console.log("Start the gateway with: opencodex gateway start");
     }
   });
 
@@ -906,7 +900,7 @@ bot
   .argument("<name>", "Bot name to remove")
   .option("-c, --config <path>", "Path to config file")
   .action(async (name: string, opts: { config?: string }) => {
-    const configPath = opts.config ?? resolve(process.env.HOME ?? "~", ".openclaude", "config.yaml");
+    const configPath = opts.config ?? resolve(process.env.HOME ?? "~", ".opencodex", "config.yaml");
     const content = readFileSync(configPath, "utf-8");
     const doc = parseDocument(content);
 
@@ -948,7 +942,7 @@ bot
         await fetch(`http://127.0.0.1:${config.gateway.port}/api/reload-config`, { method: "POST" });
         console.log("Gateway reloaded.");
       } catch {
-        console.log("Restart gateway to apply: openclaude gateway restart");
+        console.log("Restart gateway to apply: opencodex gateway restart");
       }
     }
   });
@@ -968,7 +962,7 @@ soul
     const soulPath = join(dataDir, "agents", botId, "SOUL.md");
     if (!existsSync(soulPath)) {
       console.log(`No SOUL.md found for bot ${name} (${botId}).`);
-      console.log(`Create one with: openclaude bot soul edit`);
+      console.log(`Create one with: opencodex bot soul edit`);
       return;
     }
     console.log(`SOUL.md for bot ${name} (${soulPath}):\n`);

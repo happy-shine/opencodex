@@ -1,11 +1,11 @@
 {
-  "name": "openclaude",
+  "name": "opencodex",
   "version": "0.1.0",
-  "description": "Gateway bridging chat platforms (Telegram, Discord, etc.) to Claude Code CLI",
+  "description": "Gateway bridging chat platforms (Telegram, Discord, etc.) to Codex CLI",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "openclaude": "dist/index.js"
+    "opencodex": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",
