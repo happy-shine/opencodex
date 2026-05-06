@@ -1,5 +1,5 @@
 /**
- * Generates the system prompt skill that teaches Claude Code how to query
+ * Generates the system prompt skill that teaches the engine how to query
  * group chat history via the Gateway API.
  */
 export function getChatHistorySkill(apiPort: number, chatId: string): string {
@@ -23,7 +23,7 @@ curl -s "http://127.0.0.1:${apiPort}/api/chat-history?chat_id=${chatId}&since=2h
 | \`until\` | End time | \`now\`, \`today\`, \`2026-04-08\` |
 | \`limit\` | Max messages (default 100) | \`50\`, \`200\`, \`500\` |
 | \`sender\` | Filter by sender name | \`Dr. Shine\`, \`á\` |
-| \`search\` | Full-text search | \`量化\`, \`openclaude\` |
+| \`search\` | Full-text search | \`量化\`, \`opencodex\` |
 
 ### Common use cases
 
