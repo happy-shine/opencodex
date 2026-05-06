@@ -3,6 +3,12 @@ import type { Session } from "../sessions/types.js";
 
 export type EngineType = "codex" | "claude";
 
+export interface BotIdentity {
+  name: string;
+  username: string;
+  peerBots?: Array<{ name: string; username: string }>;
+}
+
 export interface EngineRuntimeConfig {
   type: EngineType;
   binary: string;
@@ -39,8 +45,8 @@ export interface EngineProcess {
 
 export interface EngineAdapter {
   readonly type: EngineType;
-  acquire(session: Session, botId: string, botExtraArgs?: string[]): EngineProcess;
-  sendMessage(session: Session, text: string, botId: string, botExtraArgs?: string[]): AsyncGenerator<EngineEvent>;
+  acquire(session: Session, botId: string, botExtraArgs?: string[], identity?: BotIdentity): EngineProcess;
+  sendMessage(session: Session, text: string, botId: string, botExtraArgs?: string[], identity?: BotIdentity): AsyncGenerator<EngineEvent>;
   forkAndAsk(session: Session, question: string, botId: string, botExtraArgs?: string[]): AsyncGenerator<EngineEvent>;
   sendControl(sessionId: string, request: Record<string, unknown>): boolean;
   sendControlAndWait(sessionId: string, request: Record<string, unknown>, timeoutMs?: number): Promise<Record<string, unknown> | null>;

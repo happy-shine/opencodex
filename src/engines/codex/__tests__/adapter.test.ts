@@ -77,6 +77,31 @@ describe("CodexEngineAdapter", () => {
     expect(textEvent?.text.endsWith("secret prompt|false|true")).toBe(true);
   });
 
+  it("does not repeat the OpenCodex system prompt when resuming a Codex thread", async () => {
+    const script = createBinary(`
+      let body = "";
+      process.stdin.setEncoding("utf8");
+      process.stdin.on("data", (chunk) => { body += chunk; });
+      process.stdin.on("end", () => {
+        console.log(JSON.stringify({
+          type: "item.completed",
+          item: { type: "agent_message", text: body },
+        }));
+        console.log(JSON.stringify({ type: "turn.completed", result: "done" }));
+      });
+    `);
+    const adapter = new CodexEngineAdapter(createConfig({ binary: script }), pino({ enabled: false }));
+
+    const events = await collect(adapter.sendMessage(
+      createSession({ engineSessionId: "thread-123" }),
+      "resume prompt",
+      "bot",
+    ));
+
+    const textEvent = events.find((event): event is { type: "text"; text: string } => event.type === "text");
+    expect(textEvent?.text).toBe("resume prompt");
+  });
+
   it("yields terminal error events when all process slots are busy", async () => {
     const script = createBinary(`
       console.log(JSON.stringify({ type: "turn.completed", result: "ok" }));

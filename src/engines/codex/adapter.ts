@@ -6,7 +6,7 @@ import type { ChildProcess } from "node:child_process";
 import type { Logger } from "pino";
 import type { Session } from "../../sessions/types.js";
 import { buildCodexPrompt, buildEnginePromptParts } from "../prompt.js";
-import type { EngineAdapter, EngineEvent, EngineProcess, EngineRuntimeConfig } from "../types.js";
+import type { BotIdentity, EngineAdapter, EngineEvent, EngineProcess, EngineRuntimeConfig } from "../types.js";
 import {
   buildCodexSpawnArgs,
   mapCodexEvent,
@@ -70,7 +70,7 @@ export class CodexEngineAdapter implements EngineAdapter {
     return cp;
   }
 
-  async *sendMessage(session: Session, text: string, botId: string, botExtraArgs?: string[]): AsyncGenerator<EngineEvent> {
+  async *sendMessage(session: Session, text: string, botId: string, botExtraArgs?: string[], identity?: BotIdentity): AsyncGenerator<EngineEvent> {
     let cp: CodexEngineProcess;
     try {
       cp = this.acquire(session, botId) as CodexEngineProcess;
@@ -83,7 +83,7 @@ export class CodexEngineAdapter implements EngineAdapter {
     cp.lastActiveAt = Date.now();
     this.clearIdleTimer(session.sessionId);
 
-    const prompt = this.buildPrompt(session, text, botId);
+    const prompt = this.buildPrompt(session, text, botId, identity);
 
     try {
       yield* this.runTurn({
@@ -222,13 +222,16 @@ export class CodexEngineAdapter implements EngineAdapter {
     return this.processes.get(sessionId)?.busy ?? false;
   }
 
-  private buildPrompt(session: Session, text: string, botId: string): string {
+  private buildPrompt(session: Session, text: string, botId: string, identity?: BotIdentity): string {
+    if (session.engineSessionId) return text;
+
     const promptParts = buildEnginePromptParts({
       agentsDir: this.config.agentsDir,
       botId,
       apiPort: this.config.apiPort,
       chatId: session.chatId,
       isGroup: session.isGroup ?? false,
+      identity,
     });
     return buildCodexPrompt(promptParts, text);
   }

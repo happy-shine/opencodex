@@ -43,6 +43,27 @@ describe("buildEnginePromptParts", () => {
       }),
     ).not.toThrow();
   });
+
+  it("includes bot identity and peer hints when provided", () => {
+    const root = mkdtempSync(join(tmpdir(), "opencodex-prompt-"));
+    const agentsDir = join(root, "agents");
+
+    const prompt = buildEnginePromptParts({
+      agentsDir,
+      botId: "bot-1",
+      apiPort: 18790,
+      chatId: "chat-1",
+      isGroup: true,
+      identity: {
+        name: "atri",
+        username: "atri_bot",
+        peerBots: [{ name: "diana", username: "diana_bot" }],
+      },
+    }).join("\n\n---\n\n");
+
+    expect(prompt).toContain("你是 atri（@atri_bot）。");
+    expect(prompt).toContain("@diana_bot（diana）");
+  });
 });
 
 describe("buildCodexPrompt", () => {

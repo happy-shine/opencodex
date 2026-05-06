@@ -6,7 +6,7 @@ import type { ChildProcess } from "node:child_process";
 import type { Logger } from "pino";
 import type { Session } from "../../sessions/types.js";
 import { buildEnginePromptParts } from "../prompt.js";
-import type { EngineAdapter, EngineEvent, EngineProcess, EngineRuntimeConfig } from "../types.js";
+import type { BotIdentity, EngineAdapter, EngineEvent, EngineProcess, EngineRuntimeConfig } from "../types.js";
 import {
   buildClaudeSpawnArgs,
   mapClaudeEvent,
@@ -29,7 +29,7 @@ export class ClaudeEngineAdapter implements EngineAdapter {
     this.log = log.child({ module: "claude-engine-adapter" });
   }
 
-  acquire(session: Session, botId: string, botExtraArgs?: string[]): EngineProcess {
+  acquire(session: Session, botId: string, botExtraArgs?: string[], identity?: BotIdentity): EngineProcess {
     const existing = this.processes.get(session.sessionId);
     if (existing && !existing.process.killed) {
       this.resetIdleTimer(session.sessionId);
@@ -49,6 +49,7 @@ export class ClaudeEngineAdapter implements EngineAdapter {
       apiPort: this.config.apiPort,
       chatId: session.chatId,
       isGroup: session.isGroup ?? false,
+      identity,
     });
     const baseArgs = botExtraArgs ?? this.config.extraArgs;
     const extraArgs = [
@@ -91,8 +92,8 @@ export class ClaudeEngineAdapter implements EngineAdapter {
     return cp;
   }
 
-  async *sendMessage(session: Session, text: string, botId: string, botExtraArgs?: string[]): AsyncGenerator<EngineEvent> {
-    let cp = this.acquire(session, botId, botExtraArgs) as ClaudeEngineProcess;
+  async *sendMessage(session: Session, text: string, botId: string, botExtraArgs?: string[], identity?: BotIdentity): AsyncGenerator<EngineEvent> {
+    let cp = this.acquire(session, botId, botExtraArgs, identity) as ClaudeEngineProcess;
     cp.busy = true;
     cp.lastActiveAt = Date.now();
     this.clearIdleTimer(session.sessionId);
@@ -113,7 +114,7 @@ export class ClaudeEngineAdapter implements EngineAdapter {
         session.claudeSessionId = undefined;
         this.processes.delete(session.sessionId);
 
-        cp = this.acquire(session, botId, botExtraArgs) as ClaudeEngineProcess;
+        cp = this.acquire(session, botId, botExtraArgs, identity) as ClaudeEngineProcess;
         cp.busy = true;
         this.clearIdleTimer(session.sessionId);
         sendUserMessage(cp.process, text);

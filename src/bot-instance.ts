@@ -1,7 +1,7 @@
 import type { Logger } from "pino";
 import type { GatewayConfig, ResolvedBotConfig } from "./config/types.js";
 import type { InboundMessage } from "./channels/types.js";
-import type { EngineAdapter, EngineEvent } from "./engines/types.js";
+import type { BotIdentity, EngineAdapter, EngineEvent } from "./engines/types.js";
 import { TelegramAdapter } from "./channels/telegram/adapter.js";
 import { getRecentGroupContext, getRecentGroupContextForSession } from "./channels/telegram/handlers.js";
 import { MessageStore } from "./sessions/message-store.js";
@@ -342,6 +342,16 @@ export class BotInstance {
     return this.processManager.type === "claude";
   }
 
+  private botIdentity(): BotIdentity | undefined {
+    const username = this.telegram.username;
+    if (!username) return undefined;
+    return {
+      name: this.name,
+      username,
+      peerBots: this.peerBots,
+    };
+  }
+
   private setCodexModel(model: string): void {
     this.extraArgs = setModelArg(this.extraArgs, model);
   }
@@ -409,14 +419,9 @@ export class BotInstance {
       this.telegram.removeButtons(msg.chatId, prevBtnMsg).catch(() => {});
     }
 
-    // Build message with metadata (sender, time, reply context)
+    // Build message with metadata (sender, time, reply context). Bot identity
+    // and peer-bot hints are injected once via the engine system prompt.
     let messageText = formatMessageWithMeta(msg, session.sessionId);
-
-    // Inject peer bot hints for group chats
-    if (msg.isGroup && this.peerBots.length > 0) {
-      const botList = this.peerBots.map(b => `@${b.username} (${b.name})`).join(", ");
-      messageText = `[本群可@的bot: ${botList} — 注意: 只有以上列出的bot可以被@到，@其他任何bot都无效（消息不会送达）。除非用户明确要求bot间交流，否则不要主动@其他bot。]\n\n${messageText}`;
-    }
 
     // Collect all attachments to download (current message + reply media)
     const allAttachments = [
@@ -426,7 +431,7 @@ export class BotInstance {
 
     if (allAttachments.length > 0) {
       // Trigger acquire to create the workspace dir
-      this.processManager.acquire(session, this.botId, this.extraArgs);
+      this.processManager.acquire(session, this.botId, this.extraArgs, this.botIdentity());
       const wsDir = this.processManager.getWorkspaceDir(session.sessionId);
       if (wsDir) {
         const downloadsDir = join(wsDir, "downloads");
@@ -456,7 +461,7 @@ export class BotInstance {
     progress.start(); // auto-flush every 1.5s for spinner animation
 
     try {
-      for await (const event of this.processManager.sendMessage(session, messageText, this.botId, this.extraArgs)) {
+      for await (const event of this.processManager.sendMessage(session, messageText, this.botId, this.extraArgs, this.botIdentity())) {
         this.applyEngineSessionEvent(session.sessionId, event);
         this.applyProgressEvent(progress, event);
 
@@ -952,7 +957,7 @@ export class BotInstance {
       progress.start();
       try {
         let generatedTitle = "";
-        for await (const event of this.processManager.sendMessage(session, messageText, this.botId, this.extraArgs)) {
+        for await (const event of this.processManager.sendMessage(session, messageText, this.botId, this.extraArgs, this.botIdentity())) {
           this.applyEngineSessionEvent(session.sessionId, event);
 
           if (event.type === "thinking_started") {
