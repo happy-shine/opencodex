@@ -18,9 +18,13 @@ export function buildEnginePromptParts(input: EnginePromptPartsInput): string[] 
   const parts: string[] = [];
   const soulPath = join(input.agentsDir, input.botId, "SOUL.md");
 
-  if (existsSync(soulPath)) {
-    const soul = readFileSync(soulPath, "utf-8").trim();
-    if (soul) parts.push(soul);
+  try {
+    if (existsSync(soulPath)) {
+      const soul = readFileSync(soulPath, "utf-8").trim();
+      if (soul) parts.push(soul);
+    }
+  } catch {
+    // Skip SOUL.md if it is missing, unreadable, or not a regular file.
   }
 
   parts.push(getTelegramFileSkill(input.apiPort, input.chatId, input.botId, input.isGroup));
