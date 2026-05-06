@@ -481,6 +481,11 @@ export class BotInstance {
             ? buf
             : (typeof event.result === "string" && event.result) || "";
 
+          if (finalText.trim().length === 0) {
+            await this.finalizeProgressError(progress, msg.chatId, "Error: Codex completed without a response.", msg.messageId);
+            break;
+          }
+
           await this.sendMainResult(msg, progress, finalText);
           break;
         }

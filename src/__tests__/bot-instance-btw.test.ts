@@ -61,6 +61,18 @@ describe("BotInstance /btw", () => {
   });
 });
 
+describe("BotInstance main replies", () => {
+  it("sends a visible error when the main turn completes with no text", async () => {
+    const { bot, sent, edited } = createBotWithMessages("codex", [], [
+      { type: "result", result: "" },
+    ]);
+
+    await callHandleMessage(bot, createMessage("hello"));
+
+    expect([...sent, ...edited].some((text) => text.includes("Error: Codex completed without a response."))).toBe(true);
+  });
+});
+
 describe("BotInstance engine controls", () => {
   it("updates Codex model and effort arguments for the next turn", async () => {
     const { bot, sent, buttonPrompts } = createBotWithMessages("codex", []);
@@ -118,10 +130,14 @@ function createBot(engineType: GatewayConfig["engine"]["type"], forkEvents: Engi
   return createBotWithMessages(engineType, forkEvents).bot;
 }
 
-function createBotWithMessages(engineType: GatewayConfig["engine"]["type"], forkEvents: EngineEvent[]) {
+function createBotWithMessages(
+  engineType: GatewayConfig["engine"]["type"],
+  forkEvents: EngineEvent[],
+  messageEvents: EngineEvent[] = [{ type: "result", result: "ok" }],
+) {
   const dataDir = createTempDir();
   const config = createConfig(engineType, dataDir);
-  const adapter = new FakeEngineAdapter(engineType, forkEvents);
+  const adapter = new FakeEngineAdapter(engineType, forkEvents, messageEvents);
   const bot = new BotInstance({
     botConfig: resolveBots(config)[0],
     gatewayConfig: config,
@@ -151,6 +167,7 @@ function createBotWithMessages(engineType: GatewayConfig["engine"]["type"], fork
     editMessage: async (_chatId: string, _messageId: string, text: string) => {
       edited.push(text);
     },
+    sendTyping: async () => {},
   });
 
   return { bot, sent, edited, buttonPrompts, callbackEdits };
@@ -199,6 +216,10 @@ async function callHandleBtw(bot: BotInstance, msg: InboundMessage): Promise<voi
   await (bot as unknown as { handleBtw(msg: InboundMessage): Promise<void> }).handleBtw(msg);
 }
 
+async function callHandleMessage(bot: BotInstance, msg: InboundMessage): Promise<void> {
+  await (bot as unknown as { handleMessage(msg: InboundMessage): Promise<void> }).handleMessage(msg);
+}
+
 async function callHandleHelp(bot: BotInstance, msg: InboundMessage): Promise<void> {
   await (bot as unknown as { handleHelp(msg: InboundMessage): Promise<void> }).handleHelp(msg);
 }
@@ -243,7 +264,11 @@ function createCallbackContext(data: string, edits: string[]): any {
 class FakeEngineAdapter implements EngineAdapter {
   readonly type: GatewayConfig["engine"]["type"];
 
-  constructor(type: GatewayConfig["engine"]["type"], private readonly forkEvents: EngineEvent[]) {
+  constructor(
+    type: GatewayConfig["engine"]["type"],
+    private readonly forkEvents: EngineEvent[],
+    private readonly messageEvents: EngineEvent[],
+  ) {
     this.type = type;
   }
 
@@ -258,7 +283,9 @@ class FakeEngineAdapter implements EngineAdapter {
   }
 
   async *sendMessage(): AsyncGenerator<EngineEvent> {
-    yield { type: "result", result: "ok" };
+    for (const event of this.messageEvents) {
+      yield event;
+    }
   }
 
   async *forkAndAsk(): AsyncGenerator<EngineEvent> {
