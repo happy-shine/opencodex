@@ -93,8 +93,8 @@ export class TelegramAdapter implements ChannelAdapter {
       { command: "btw", description: "Quick side question without interrupting current work" },
       { command: "sessions", description: "List sessions or switch (e.g. /sessions 2)" },
       { command: "title", description: "Set session title (empty = auto)" },
-      { command: "model", description: "Switch model (sonnet/opus/haiku)" },
-      { command: "effort", description: "Set thinking depth (low/medium/high/max)" },
+      { command: "model", description: "Model settings" },
+      { command: "effort", description: "Reasoning effort settings" },
       { command: "stop", description: "Interrupt current task" },
       { command: "help", description: "Show help" },
     ];

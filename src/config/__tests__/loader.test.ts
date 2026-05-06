@@ -69,6 +69,30 @@ bots:
     expect(cfg.engine.claude.extraArgs).toEqual(["--engine"]);
   });
 
+  it("keeps explicit engine claude values when legacy claude config is also present", () => {
+    const cfg = parseConfig(`
+engine:
+  claude:
+    binary: "/opt/bin/claude"
+    model: "engine-opus"
+    extraArgs: ["--engine"]
+claude:
+  binary: "/usr/local/bin/claude"
+  model: "legacy-opus"
+  extraArgs: ["--legacy"]
+  idleTimeoutMs: 12345
+  maxProcesses: 3
+bots:
+  - name: "bot"
+    token: "123:abc"
+`);
+    expect(cfg.engine.maxProcesses).toBe(3);
+    expect(cfg.engine.idleTimeoutMs).toBe(12345);
+    expect(cfg.engine.claude.binary).toBe("/opt/bin/claude");
+    expect(cfg.engine.claude.model).toBe("engine-opus");
+    expect(cfg.engine.claude.extraArgs).toEqual(["--engine"]);
+  });
+
   it("parses valid config yaml string", () => {
     const yaml = `
 gateway:

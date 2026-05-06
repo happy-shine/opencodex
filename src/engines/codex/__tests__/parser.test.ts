@@ -24,8 +24,9 @@ describe("buildCodexSpawnArgs", () => {
       "exec",
       "--json",
       "--skip-git-repo-check",
-      "hello",
+      "-",
     ]);
+    expect(result.stdin).toBe("hello");
   });
 
   it("builds args for a resumed turn", () => {
@@ -50,8 +51,9 @@ describe("buildCodexSpawnArgs", () => {
       "--skip-git-repo-check",
       "--model",
       "gpt-5.4",
-      "again",
+      "-",
     ]);
+    expect(result.stdin).toBe("again");
   });
 
   it("puts ephemeral after resume id and before extra args for a resumed turn", () => {
@@ -78,8 +80,9 @@ describe("buildCodexSpawnArgs", () => {
       "--ephemeral",
       "--model",
       "gpt-5.4",
-      "continue",
+      "-",
     ]);
+    expect(result.stdin).toBe("continue");
   });
 });
 

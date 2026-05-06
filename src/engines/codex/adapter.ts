@@ -240,7 +240,7 @@ export class CodexEngineAdapter implements EngineAdapter {
     extraArgs: string[];
     ephemeral?: boolean;
   }): CodexProcessLifecycle {
-    const { cmd, args } = buildCodexSpawnArgs({
+    const { cmd, args, stdin } = buildCodexSpawnArgs({
       binary: this.config.binary,
       prompt: input.prompt,
       engineSessionId: input.engineSessionId,
@@ -251,10 +251,15 @@ export class CodexEngineAdapter implements EngineAdapter {
     });
 
     const proc = spawn(cmd, args, {
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
       cwd: input.cwd,
       env: { ...process.env },
     });
+
+    proc.stdin?.on("error", (err) => {
+      this.log.debug({ error: err instanceof Error ? err.message : String(err) }, "Codex stdin closed early");
+    });
+    proc.stdin?.end(stdin);
 
     proc.stderr?.on("data", (data: Buffer) => {
       const text = data.toString().trim();

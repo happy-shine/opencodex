@@ -61,6 +61,45 @@ describe("BotInstance /btw", () => {
   });
 });
 
+describe("BotInstance engine controls", () => {
+  it("shows config guidance instead of Claude live controls for Codex", async () => {
+    const { bot, sent, buttonPrompts } = createBotWithMessages("codex", []);
+
+    await callHandleHelp(bot, createMessage(""));
+    expect(sent.at(-1)).toContain("/model \u2014 Show Codex model config hint");
+    expect(sent.at(-1)).not.toContain("sonnet/opus/haiku");
+
+    await callHandleModel(bot, createMessage("opus"));
+    expect(sent.at(-1)).toContain("engine.codex.model");
+
+    await callHandleEffort(bot, createMessage("high"));
+    expect(sent.at(-1)).toContain("engine.codex.extraArgs");
+    expect(buttonPrompts).toEqual([]);
+  });
+
+  it("keeps Claude live control buttons for the Claude adapter", async () => {
+    const { bot, buttonPrompts } = createBotWithMessages("claude", []);
+
+    await callHandleModel(bot, createMessage(""));
+    await callHandleEffort(bot, createMessage(""));
+
+    expect(buttonPrompts[0]).toEqual({ text: "Select model:", buttons: ["opus", "sonnet", "haiku"] });
+    expect(buttonPrompts[1]).toEqual({ text: "Select effort level:", buttons: ["low", "medium", "high", "max"] });
+  });
+
+  it("does not route stale model callbacks to Codex controls", async () => {
+    const { bot, sent, callbackEdits } = createBotWithMessages("codex", []);
+    await bot.start();
+    const handler = bot.telegram.getCallbackHandler("model");
+    expect(handler).toBeDefined();
+
+    await handler!(createCallbackContext("model:opus", callbackEdits));
+
+    expect(callbackEdits).toEqual(["Codex model settings"]);
+    expect(sent.at(-1)).toContain("engine.codex.model");
+  });
+});
+
 function createBot(engineType: GatewayConfig["engine"]["type"], forkEvents: EngineEvent[]): BotInstance {
   return createBotWithMessages(engineType, forkEvents).bot;
 }
@@ -80,17 +119,27 @@ function createBotWithMessages(engineType: GatewayConfig["engine"]["type"], fork
 
   const sent: string[] = [];
   const edited: string[] = [];
+  const buttonPrompts: Array<{ text: string; buttons: string[] }> = [];
+  const callbackEdits: string[] = [];
   Object.assign(bot.telegram, {
+    start: async () => {},
     send: async ({ text }: { text: string }) => {
       sent.push(text);
       return `msg-${sent.length}`;
+    },
+    sendWithButtons: async (_chatId: string, text: string, buttons: Array<string | { text: string }>) => {
+      buttonPrompts.push({
+        text,
+        buttons: buttons.map((button) => typeof button === "string" ? button : button.text),
+      });
+      return `button-msg-${buttonPrompts.length}`;
     },
     editMessage: async (_chatId: string, _messageId: string, text: string) => {
       edited.push(text);
     },
   });
 
-  return { bot, sent, edited };
+  return { bot, sent, edited, buttonPrompts, callbackEdits };
 }
 
 function createConfig(engineType: GatewayConfig["engine"]["type"], dataDir: string): GatewayConfig {
@@ -132,6 +181,18 @@ async function callHandleBtw(bot: BotInstance, msg: InboundMessage): Promise<voi
   await (bot as unknown as { handleBtw(msg: InboundMessage): Promise<void> }).handleBtw(msg);
 }
 
+async function callHandleHelp(bot: BotInstance, msg: InboundMessage): Promise<void> {
+  await (bot as unknown as { handleHelp(msg: InboundMessage): Promise<void> }).handleHelp(msg);
+}
+
+async function callHandleModel(bot: BotInstance, msg: InboundMessage): Promise<void> {
+  await (bot as unknown as { handleModel(msg: InboundMessage): Promise<void> }).handleModel(msg);
+}
+
+async function callHandleEffort(bot: BotInstance, msg: InboundMessage): Promise<void> {
+  await (bot as unknown as { handleEffort(msg: InboundMessage): Promise<void> }).handleEffort(msg);
+}
+
 function createMessage(text: string): InboundMessage {
   return {
     channelType: "telegram",
@@ -143,6 +204,21 @@ function createMessage(text: string): InboundMessage {
     isGroup: false,
     timestamp: Math.floor(Date.now() / 1000),
     raw: {},
+  };
+}
+
+function createCallbackContext(data: string, edits: string[]): any {
+  return {
+    callbackQuery: {
+      data,
+      message: {
+        chat: { id: "chat-1" },
+        text: "stale control",
+      },
+    },
+    editMessageText: async (text: string) => {
+      edits.push(text);
+    },
   };
 }
 

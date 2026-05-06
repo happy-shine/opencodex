@@ -15,6 +15,10 @@ import { join } from "node:path";
 import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from "node:fs";
 
 const SESSIONS_PER_PAGE = 10;
+const CODEX_MODEL_CONFIG_MESSAGE =
+  "Codex model is configured in config.yaml via engine.codex.model or engine.codex.extraArgs. Reload config or restart OpenCodex to apply changes.";
+const CODEX_EFFORT_CONFIG_MESSAGE =
+  "Codex reasoning effort is configured in config.yaml via engine.codex.extraArgs. Live /effort switching is available only for the Claude adapter.";
 
 export function getBtwForkSessionId(
   engineType: GatewayConfig["engine"]["type"],
@@ -248,6 +252,16 @@ export class BotInstance {
       const chat = (ctx as any).callbackQuery?.message?.chat;
       if (!chat) return;
       const chatId = String(chat.id);
+      if (!this.supportsLiveControls()) {
+        try {
+          const orig = (ctx as any).callbackQuery?.message;
+          if (orig && "text" in orig) {
+            await (ctx as any).editMessageText("Codex model settings", { reply_markup: { inline_keyboard: [] } });
+          }
+        } catch { /* ignore */ }
+        await this.telegram.send({ chatId, text: CODEX_MODEL_CONFIG_MESSAGE });
+        return;
+      }
       try {
         const orig = (ctx as any).callbackQuery?.message;
         if (orig && "text" in orig) {
@@ -270,6 +284,16 @@ export class BotInstance {
       const chat = (ctx as any).callbackQuery?.message?.chat;
       if (!chat) return;
       const chatId = String(chat.id);
+      if (!this.supportsLiveControls()) {
+        try {
+          const orig = (ctx as any).callbackQuery?.message;
+          if (orig && "text" in orig) {
+            await (ctx as any).editMessageText("Codex reasoning settings", { reply_markup: { inline_keyboard: [] } });
+          }
+        } catch { /* ignore */ }
+        await this.telegram.send({ chatId, text: CODEX_EFFORT_CONFIG_MESSAGE });
+        return;
+      }
       try {
         const orig = (ctx as any).callbackQuery?.message;
         if (orig && "text" in orig) {
@@ -302,6 +326,10 @@ export class BotInstance {
   /** Set peer bots for group @mention hints */
   setPeerBots(peers: Array<{ name: string; username: string }>): void {
     this.peerBots = peers;
+  }
+
+  private supportsLiveControls(): boolean {
+    return this.processManager.type === "claude";
   }
 
   /** Accept a relayed message from another bot in the same gateway */
@@ -752,14 +780,22 @@ export class BotInstance {
   }
 
   private async handleHelp(msg: InboundMessage): Promise<void> {
+    const engineControlLines = this.supportsLiveControls()
+      ? [
+        "/model [name] \u2014 Switch model (sonnet/opus/haiku)",
+        "/effort [level] \u2014 Set thinking depth (low/medium/high/max)",
+      ]
+      : [
+        "/model \u2014 Show Codex model config hint",
+        "/effort \u2014 Show Codex reasoning config hint",
+      ];
     const text = [
       "OpenCodex Commands:",
       "",
       "/new \u2014 Start a new session",
       "/btw <question> \u2014 Quick side question (non-blocking)",
       "/sessions [N] \u2014 List sessions or switch to #N",
-      "/model [name] \u2014 Switch model (sonnet/opus/haiku)",
-      "/effort [level] \u2014 Set thinking depth (low/medium/high/max)",
+      ...engineControlLines,
       "/stop \u2014 Interrupt current task",
       "/title [text] \u2014 Set session title (empty = auto-generate)",
       "/help \u2014 Show this help",
@@ -770,6 +806,11 @@ export class BotInstance {
   private async handleModel(msg: InboundMessage): Promise<void> {
     const access = this.checkMessageAccess(msg);
     if (!access.allowed) return;
+
+    if (!this.supportsLiveControls()) {
+      await this.telegram.send({ chatId: msg.chatId, text: CODEX_MODEL_CONFIG_MESSAGE });
+      return;
+    }
 
     const input = msg.text.trim().toLowerCase();
     const aliases: Record<string, string> = {
@@ -806,6 +847,11 @@ export class BotInstance {
   private async handleEffort(msg: InboundMessage): Promise<void> {
     const access = this.checkMessageAccess(msg);
     if (!access.allowed) return;
+
+    if (!this.supportsLiveControls()) {
+      await this.telegram.send({ chatId: msg.chatId, text: CODEX_EFFORT_CONFIG_MESSAGE });
+      return;
+    }
 
     const level = msg.text.trim().toLowerCase();
     const valid = ["low", "medium", "high", "max"];

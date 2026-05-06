@@ -86,9 +86,9 @@ export const configSchema = z.preprocess((input) => {
     const engineClaude = {
       ...((engine.claude as Record<string, unknown> | undefined) ?? {}),
     };
-    if (legacyClaude.binary !== undefined) engineClaude.binary = legacyClaude.binary;
-    if (legacyClaude.model !== undefined) engineClaude.model = legacyClaude.model;
-    if (legacyClaude.extraArgs !== undefined) engineClaude.extraArgs = legacyClaude.extraArgs;
+    if (legacyClaude.binary !== undefined) engineClaude.binary ??= legacyClaude.binary;
+    if (legacyClaude.model !== undefined) engineClaude.model ??= legacyClaude.model;
+    if (legacyClaude.extraArgs !== undefined) engineClaude.extraArgs ??= legacyClaude.extraArgs;
     engine.claude = engineClaude;
   }
 

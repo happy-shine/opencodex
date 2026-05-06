@@ -17,6 +17,12 @@ export interface CodexJsonEvent {
   [key: string]: unknown;
 }
 
+export interface CodexSpawnCommand {
+  cmd: string;
+  args: string[];
+  stdin: string;
+}
+
 interface CodexItem {
   type?: string;
   text?: string;
@@ -36,7 +42,7 @@ interface CodexItem {
   [key: string]: unknown;
 }
 
-export function buildCodexSpawnArgs(config: CodexSpawnConfig): { cmd: string; args: string[] } {
+export function buildCodexSpawnArgs(config: CodexSpawnConfig): CodexSpawnCommand {
   const args = [
     "--ask-for-approval",
     config.approvalPolicy,
@@ -54,8 +60,8 @@ export function buildCodexSpawnArgs(config: CodexSpawnConfig): { cmd: string; ar
     args.push("--ephemeral");
   }
 
-  args.push(...config.extraArgs, config.prompt);
-  return { cmd: config.binary, args };
+  args.push(...config.extraArgs, "-");
+  return { cmd: config.binary, args, stdin: config.prompt };
 }
 
 export function parseCodexJsonLine(line: string): CodexJsonEvent | null {
