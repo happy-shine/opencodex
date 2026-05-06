@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseConfig, expandEnvVars } from "../loader.js";
+import { parseConfig, expandEnvVars, resolveBots } from "../loader.js";
 
 describe("expandEnvVars", () => {
   it("expands ${VAR} references", () => {
@@ -48,6 +48,27 @@ bots:
     expect(cfg.engine.claude.extraArgs).toEqual(["--debug"]);
   });
 
+  it("preserves explicit engine claude config when legacy claude only provides process limits", () => {
+    const cfg = parseConfig(`
+engine:
+  claude:
+    binary: "/opt/bin/claude"
+    model: "engine-opus"
+    extraArgs: ["--engine"]
+claude:
+  idleTimeoutMs: 12345
+  maxProcesses: 3
+bots:
+  - name: "bot"
+    token: "123:abc"
+`);
+    expect(cfg.engine.maxProcesses).toBe(3);
+    expect(cfg.engine.idleTimeoutMs).toBe(12345);
+    expect(cfg.engine.claude.binary).toBe("/opt/bin/claude");
+    expect(cfg.engine.claude.model).toBe("engine-opus");
+    expect(cfg.engine.claude.extraArgs).toEqual(["--engine"]);
+  });
+
   it("parses valid config yaml string", () => {
     const yaml = `
 gateway:
@@ -86,5 +107,39 @@ channels:
     expect(cfg.gateway.logLevel).toBe("info");
     expect(cfg.claude.idleTimeoutMs).toBe(600000);
     expect(cfg.channels!.telegram.dmPolicy).toBe("pairing");
+  });
+});
+
+describe("resolveBots", () => {
+  it("uses selected codex engine model and extra args", () => {
+    const cfg = parseConfig(`
+engine:
+  type: "codex"
+  codex:
+    model: "gpt-5"
+    extraArgs: ["--fast"]
+bots:
+  - name: "bot"
+    token: "123:abc"
+`);
+    const bots = resolveBots(cfg);
+    expect(bots[0].model).toBe("gpt-5");
+    expect(bots[0].extraArgs).toEqual(["--fast"]);
+  });
+
+  it("uses selected claude engine model and extra args", () => {
+    const cfg = parseConfig(`
+engine:
+  type: "claude"
+  claude:
+    model: "opus"
+    extraArgs: ["--debug"]
+bots:
+  - name: "bot"
+    token: "123:abc"
+`);
+    const bots = resolveBots(cfg);
+    expect(bots[0].model).toBe("opus");
+    expect(bots[0].extraArgs).toEqual(["--debug"]);
   });
 });

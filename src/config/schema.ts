@@ -83,12 +83,13 @@ export const configSchema = z.preprocess((input) => {
   if (legacyClaude) {
     engine.maxProcesses ??= legacyClaude.maxProcesses;
     engine.idleTimeoutMs ??= legacyClaude.idleTimeoutMs;
-    engine.claude = {
+    const engineClaude = {
       ...((engine.claude as Record<string, unknown> | undefined) ?? {}),
-      binary: legacyClaude.binary,
-      model: legacyClaude.model,
-      extraArgs: legacyClaude.extraArgs,
     };
+    if (legacyClaude.binary !== undefined) engineClaude.binary = legacyClaude.binary;
+    if (legacyClaude.model !== undefined) engineClaude.model = legacyClaude.model;
+    if (legacyClaude.extraArgs !== undefined) engineClaude.extraArgs = legacyClaude.extraArgs;
+    engine.claude = engineClaude;
   }
 
   return { ...raw, engine };
