@@ -109,8 +109,6 @@ export class ClaudeEngineAdapter implements EngineAdapter {
       const resumeSessionId = session.engineSessionId ?? session.claudeSessionId;
       if (!gotEvents && resumeSessionId) {
         this.log.warn({ sessionId: session.sessionId }, "Resume failed, retrying as new session");
-        const savedEngineSessionId = session.engineSessionId;
-        const savedClaudeSessionId = session.claudeSessionId;
         session.engineSessionId = undefined;
         session.claudeSessionId = undefined;
         this.processes.delete(session.sessionId);
@@ -123,9 +121,6 @@ export class ClaudeEngineAdapter implements EngineAdapter {
         for await (const event of readUntilResult(cp.process)) {
           yield* mapClaudeEvent(event);
         }
-
-        session.engineSessionId = savedEngineSessionId;
-        session.claudeSessionId = savedClaudeSessionId;
       }
     } finally {
       cp.busy = false;
@@ -134,12 +129,13 @@ export class ClaudeEngineAdapter implements EngineAdapter {
     }
   }
 
-  async *forkAndAsk(session: Session, question: string, botId: string): AsyncGenerator<EngineEvent> {
+  async *forkAndAsk(session: Session, question: string, botId: string, botExtraArgs?: string[]): AsyncGenerator<EngineEvent> {
     const resumeSessionId = session.engineSessionId ?? session.claudeSessionId;
     if (!resumeSessionId) return;
 
     const cwd = this.getSessionDir(session, botId);
     mkdirSync(cwd, { recursive: true });
+    const baseArgs = botExtraArgs ?? this.config.extraArgs;
 
     const args = [
       "-p",
@@ -151,6 +147,7 @@ export class ClaudeEngineAdapter implements EngineAdapter {
       "--fork-session",
       "--permission-mode",
       "bypassPermissions",
+      ...baseArgs,
       question,
     ];
 
@@ -193,8 +190,13 @@ export class ClaudeEngineAdapter implements EngineAdapter {
     return new Promise((resolve) => {
       const timer = setTimeout(() => { cleanup(); resolve(null); }, timeoutMs);
 
+      let buffer = "";
       const onData = (chunk: Buffer) => {
-        for (const line of chunk.toString().split("\n")) {
+        buffer += chunk.toString();
+        let newlineIndex = buffer.indexOf("\n");
+        while (newlineIndex !== -1) {
+          const line = buffer.slice(0, newlineIndex);
+          buffer = buffer.slice(newlineIndex + 1);
           const parsed = parseClaudeStreamEvent(line);
           if (parsed?.type === "control_response" && isRecord(parsed.response)) {
             if (parsed.response.request_id === requestId) {
@@ -202,6 +204,7 @@ export class ClaudeEngineAdapter implements EngineAdapter {
               resolve(parsed.response);
             }
           }
+          newlineIndex = buffer.indexOf("\n");
         }
       };
 
