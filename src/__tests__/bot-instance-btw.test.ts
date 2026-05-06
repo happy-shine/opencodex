@@ -62,19 +62,32 @@ describe("BotInstance /btw", () => {
 });
 
 describe("BotInstance engine controls", () => {
-  it("shows config guidance instead of Claude live controls for Codex", async () => {
+  it("updates Codex model and effort arguments for the next turn", async () => {
     const { bot, sent, buttonPrompts } = createBotWithMessages("codex", []);
 
     await callHandleHelp(bot, createMessage(""));
-    expect(sent.at(-1)).toContain("/model \u2014 Show Codex model config hint");
-    expect(sent.at(-1)).not.toContain("sonnet/opus/haiku");
+    expect(sent.at(-1)).toContain("/model [name] \u2014 Set Codex model");
+    expect(sent.at(-1)).toContain("/effort [level] \u2014 Set Codex reasoning effort");
 
-    await callHandleModel(bot, createMessage("opus"));
-    expect(sent.at(-1)).toContain("engine.codex.model");
+    await callHandleModel(bot, createMessage("5.5"));
+    expect(sent.at(-1)).toContain("Model set to gpt-5.5. Will apply on next message.");
+    expect(getBotExtraArgs(bot)).toContain("--model");
+    expect(getBotExtraArgs(bot)).toContain("gpt-5.5");
 
-    await callHandleEffort(bot, createMessage("high"));
-    expect(sent.at(-1)).toContain("engine.codex.extraArgs");
-    expect(buttonPrompts).toEqual([]);
+    await callHandleEffort(bot, createMessage("max"));
+    expect(sent.at(-1)).toContain("Effort set to xhigh. Will apply on next message.");
+    expect(getBotExtraArgs(bot)).toContain("model_reasoning_effort=xhigh");
+
+    await callHandleModel(bot, createMessage(""));
+    await callHandleEffort(bot, createMessage(""));
+    expect(buttonPrompts[0]).toEqual({
+      text: "Select Codex model:",
+      buttons: ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "spark"],
+    });
+    expect(buttonPrompts[1]).toEqual({
+      text: "Select Codex effort:",
+      buttons: ["minimal", "low", "medium", "high", "xhigh"],
+    });
   });
 
   it("keeps Claude live control buttons for the Claude adapter", async () => {
@@ -87,16 +100,17 @@ describe("BotInstance engine controls", () => {
     expect(buttonPrompts[1]).toEqual({ text: "Select effort level:", buttons: ["low", "medium", "high", "max"] });
   });
 
-  it("does not route stale model callbacks to Codex controls", async () => {
+  it("routes model callbacks to Codex next-turn controls", async () => {
     const { bot, sent, callbackEdits } = createBotWithMessages("codex", []);
     await bot.start();
     const handler = bot.telegram.getCallbackHandler("model");
     expect(handler).toBeDefined();
 
-    await handler!(createCallbackContext("model:opus", callbackEdits));
+    await handler!(createCallbackContext("model:gpt-5.4", callbackEdits));
 
-    expect(callbackEdits).toEqual(["Codex model settings"]);
-    expect(sent.at(-1)).toContain("engine.codex.model");
+    expect(callbackEdits).toEqual(["Model: gpt-5.4"]);
+    expect(sent.at(-1)).toContain("Model set to gpt-5.4. Will apply on next message.");
+    expect(getBotExtraArgs(bot)).toContain("gpt-5.4");
   });
 });
 
@@ -175,6 +189,10 @@ function updateBotSession(bot: BotInstance, sessionId: string, patch: Partial<Se
   (bot as unknown as { sessionManager: { update(sessionId: string, patch: Partial<Session>): void } })
     .sessionManager
     .update(sessionId, patch);
+}
+
+function getBotExtraArgs(bot: BotInstance): string[] {
+  return (bot as unknown as { extraArgs: string[] }).extraArgs;
 }
 
 async function callHandleBtw(bot: BotInstance, msg: InboundMessage): Promise<void> {

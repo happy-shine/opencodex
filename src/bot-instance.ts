@@ -15,10 +15,14 @@ import { join } from "node:path";
 import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from "node:fs";
 
 const SESSIONS_PER_PAGE = 10;
-const CODEX_MODEL_CONFIG_MESSAGE =
-  "Codex model is configured in config.yaml via engine.codex.model or engine.codex.extraArgs. Reload config or restart OpenCodex to apply changes.";
-const CODEX_EFFORT_CONFIG_MESSAGE =
-  "Codex reasoning effort is configured in config.yaml via engine.codex.extraArgs. Live /effort switching is available only for the Claude adapter.";
+const CODEX_MODEL_BUTTONS = [
+  { text: "gpt-5.5", model: "gpt-5.5" },
+  { text: "gpt-5.4", model: "gpt-5.4" },
+  { text: "gpt-5.4-mini", model: "gpt-5.4-mini" },
+  { text: "gpt-5.3-codex", model: "gpt-5.3-codex" },
+  { text: "spark", model: "gpt-5.3-codex-spark" },
+] as const;
+const CODEX_EFFORT_LEVELS = ["minimal", "low", "medium", "high", "xhigh"] as const;
 
 export function getBtwForkSessionId(
   engineType: GatewayConfig["engine"]["type"],
@@ -253,13 +257,16 @@ export class BotInstance {
       if (!chat) return;
       const chatId = String(chat.id);
       if (!this.supportsLiveControls()) {
+        const model = normalizeCodexModel(value);
+        if (!model) return;
         try {
           const orig = (ctx as any).callbackQuery?.message;
           if (orig && "text" in orig) {
-            await (ctx as any).editMessageText("Codex model settings", { reply_markup: { inline_keyboard: [] } });
+            await (ctx as any).editMessageText(`Model: ${model}`, { reply_markup: { inline_keyboard: [] } });
           }
         } catch { /* ignore */ }
-        await this.telegram.send({ chatId, text: CODEX_MODEL_CONFIG_MESSAGE });
+        this.setCodexModel(model);
+        await this.telegram.send({ chatId, text: `Model set to ${model}. Will apply on next message.` });
         return;
       }
       try {
@@ -285,13 +292,16 @@ export class BotInstance {
       if (!chat) return;
       const chatId = String(chat.id);
       if (!this.supportsLiveControls()) {
+        const level = normalizeCodexEffort(value);
+        if (!level) return;
         try {
           const orig = (ctx as any).callbackQuery?.message;
           if (orig && "text" in orig) {
-            await (ctx as any).editMessageText("Codex reasoning settings", { reply_markup: { inline_keyboard: [] } });
+            await (ctx as any).editMessageText(`Effort: ${level}`, { reply_markup: { inline_keyboard: [] } });
           }
         } catch { /* ignore */ }
-        await this.telegram.send({ chatId, text: CODEX_EFFORT_CONFIG_MESSAGE });
+        this.setCodexEffort(level);
+        await this.telegram.send({ chatId, text: `Effort set to ${level}. Will apply on next message.` });
         return;
       }
       try {
@@ -330,6 +340,14 @@ export class BotInstance {
 
   private supportsLiveControls(): boolean {
     return this.processManager.type === "claude";
+  }
+
+  private setCodexModel(model: string): void {
+    this.extraArgs = setModelArg(this.extraArgs, model);
+  }
+
+  private setCodexEffort(level: string): void {
+    this.extraArgs = setCodexConfigOverride(this.extraArgs, "model_reasoning_effort", level);
   }
 
   /** Accept a relayed message from another bot in the same gateway */
@@ -786,8 +804,8 @@ export class BotInstance {
         "/effort [level] \u2014 Set thinking depth (low/medium/high/max)",
       ]
       : [
-        "/model \u2014 Show Codex model config hint",
-        "/effort \u2014 Show Codex reasoning config hint",
+        "/model [name] \u2014 Set Codex model (e.g. gpt-5.5)",
+        "/effort [level] \u2014 Set Codex reasoning effort (minimal/low/medium/high/xhigh)",
       ];
     const text = [
       "OpenCodex Commands:",
@@ -808,7 +826,18 @@ export class BotInstance {
     if (!access.allowed) return;
 
     if (!this.supportsLiveControls()) {
-      await this.telegram.send({ chatId: msg.chatId, text: CODEX_MODEL_CONFIG_MESSAGE });
+      const model = normalizeCodexModel(msg.text);
+      if (!model) {
+        await this.telegram.sendWithButtons(
+          msg.chatId,
+          "Select Codex model:",
+          CODEX_MODEL_BUTTONS.map((option) => ({ text: option.text, data: `model:${option.model}` })),
+        );
+        return;
+      }
+
+      this.setCodexModel(model);
+      await this.telegram.send({ chatId: msg.chatId, text: `Model set to ${model}. Will apply on next message.` });
       return;
     }
 
@@ -849,7 +878,18 @@ export class BotInstance {
     if (!access.allowed) return;
 
     if (!this.supportsLiveControls()) {
-      await this.telegram.send({ chatId: msg.chatId, text: CODEX_EFFORT_CONFIG_MESSAGE });
+      const level = normalizeCodexEffort(msg.text);
+      if (!level) {
+        await this.telegram.sendWithButtons(
+          msg.chatId,
+          "Select Codex effort:",
+          CODEX_EFFORT_LEVELS.map((v) => ({ text: v, data: `effort:${v}` })),
+        );
+        return;
+      }
+
+      this.setCodexEffort(level);
+      await this.telegram.send({ chatId: msg.chatId, text: `Effort set to ${level}. Will apply on next message.` });
       return;
     }
 
@@ -1035,6 +1075,99 @@ function formatAge(ms: number): string {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
+}
+
+function normalizeCodexModel(input: string): string | undefined {
+  const trimmed = input.trim();
+  if (!trimmed) return undefined;
+  const key = trimmed.toLowerCase();
+  const aliases: Record<string, string> = {
+    "5.5": "gpt-5.5",
+    "gpt5.5": "gpt-5.5",
+    "gpt-5.5": "gpt-5.5",
+    "5.4": "gpt-5.4",
+    "gpt5.4": "gpt-5.4",
+    "gpt-5.4": "gpt-5.4",
+    mini: "gpt-5.4-mini",
+    "5.4-mini": "gpt-5.4-mini",
+    "gpt-5.4-mini": "gpt-5.4-mini",
+    codex: "gpt-5.3-codex",
+    "5.3-codex": "gpt-5.3-codex",
+    "gpt-5.3-codex": "gpt-5.3-codex",
+    spark: "gpt-5.3-codex-spark",
+    "codex-spark": "gpt-5.3-codex-spark",
+    "5.3-codex-spark": "gpt-5.3-codex-spark",
+    "gpt-5.3-codex-spark": "gpt-5.3-codex-spark",
+    "5.2": "gpt-5.2",
+    "gpt-5.2": "gpt-5.2",
+  };
+  return aliases[key] ?? trimmed;
+}
+
+function normalizeCodexEffort(input: string): string | undefined {
+  const key = input.trim().toLowerCase();
+  const aliases: Record<string, string> = {
+    min: "minimal",
+    minimal: "minimal",
+    low: "low",
+    medium: "medium",
+    med: "medium",
+    high: "high",
+    max: "xhigh",
+    xhigh: "xhigh",
+    "x-high": "xhigh",
+    "extra-high": "xhigh",
+    "\u4f4e": "low",
+    "\u4e2d": "medium",
+    "\u9ad8": "high",
+    "\u8d85\u9ad8": "xhigh",
+    "\u6700\u9ad8": "xhigh",
+  };
+  return aliases[key];
+}
+
+function setModelArg(args: string[], model: string): string[] {
+  const next: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--model" || arg === "-m") {
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--model=") || arg.startsWith("-m=")) {
+      continue;
+    }
+    next.push(arg);
+  }
+  return [...next, "--model", model];
+}
+
+function setCodexConfigOverride(args: string[], key: string, value: string): string[] {
+  const next: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if ((arg === "-c" || arg === "--config") && i + 1 < args.length && isConfigOverride(args[i + 1], key)) {
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--config=") && isConfigOverride(arg.slice("--config=".length), key)) {
+      continue;
+    }
+    if (arg.startsWith("-c") && arg !== "-c" && isConfigOverride(arg.slice(2), key)) {
+      continue;
+    }
+    next.push(arg);
+  }
+  return [...next, "-c", `${key}=${value}`];
+}
+
+function isConfigOverride(arg: string, key: string): boolean {
+  const pattern = new RegExp(`^${escapeRegex(key)}\\s*=`);
+  return pattern.test(arg.trim());
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /** Format message with sender name, timestamp, reply/quote context, and group history */

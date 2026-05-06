@@ -182,9 +182,10 @@ All `pairing`, `group`, `allow`, and `bot soul` commands support `--bot <name>` 
 | `/new` | Start a new session |
 | `/sessions` | List all sessions with inline picker buttons |
 | `/btw <question>` | Ask a side question without interrupting the current session |
-| `/model [name]` | Engine-dependent. Claude supports live `opus`/`sonnet`/`haiku`; set Codex models in `engine.codex.model` or `extraArgs` for new turns/sessions |
-| `/effort [level]` | Engine-dependent. Claude supports live effort control; configure Codex reasoning/effort through Codex config or CLI options when supported |
+| `/model [name]` | Claude supports live `opus`/`sonnet`/`haiku`; Codex accepts model ids/aliases such as `gpt-5.5`, `5.5`, `gpt-5.4`, `mini`, and applies them to the next turn |
+| `/effort [level]` | Claude supports live effort control; Codex accepts `minimal`/`low`/`medium`/`high`/`xhigh` (`max` maps to `xhigh`) and applies it to the next turn |
 | `/stop` | Interrupt the engine's current response |
+| `/title [text]` | Set the current session title, or auto-generate one when empty |
 | `/help` | Show help |
 
 In groups, the bot responds when **@mentioned** or **replied to**.
