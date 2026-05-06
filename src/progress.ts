@@ -188,12 +188,6 @@ export class ProgressTracker {
   }
 
   private buildDisplay(): string | null {
-    // All tools done and buffer has text — let result handler take over.
-    // This prevents duplicate messages from flush and result handler both sending buffer.
-    if (!this.currentLabel && this.buffer.length > 0) {
-      return null;
-    }
-
     // Build status display (progress only, never raw buffer text)
     const lines: string[] = [];
 
